@@ -32,14 +32,25 @@ function hasNode() {
   return Boolean(findNode());
 }
 
-function compileJava(code) {
+// C3: the Java heap comes from the problem's memoryMb. Note -Xmx caps only the
+// Java heap — total JVM footprint is usually 2-3x that (metaspace, thread
+// stacks, GC). The runner does not enforce memory yet (docs/JUDGE_SANDBOX.md).
+const DEFAULT_JAVA_MEMORY_MB = 256;
+
+function javaArgs(dir, memoryMb) {
+  const n = Number(memoryMb);
+  const mb = Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_JAVA_MEMORY_MB;
+  return [`-Xmx${mb}m`, '-cp', dir, 'Main'];
+}
+
+function compileJava(code, opts = {}) {
   if (!code || String(code).length < 2) return { ok: false, log: 'error: empty source.' };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'satori-java-'));
   const src = path.join(dir, 'Main.java');
   fs.writeFileSync(src, String(code), 'utf8');
   const r = runProcess('javac', ['-encoding', 'UTF-8', src], { timeMs: 30000, cwd: dir, maxOutputBytes: 2 * 1024 * 1024 });
   if (!r.spawnError && !r.timedOut && r.exitCode === 0 && fs.existsSync(path.join(dir, 'Main.class'))) {
-    return { ok: true, dir, cmd: 'java', args: ['-Xmx256m', '-cp', dir, 'Main'], log: '' };
+    return { ok: true, dir, cmd: 'java', args: javaArgs(dir, opts.memoryMb), log: '' };
   }
   const log = String((r.stderr || '') + (r.stdout || '') + (r.spawnError ? `\n${r.spawnError}` : '')).trim().slice(0, 8000) || 'error: compile failed. Hint: the entry class must be named Main.';
   return { ok: false, dir, log };
@@ -69,4 +80,4 @@ function prepareJs(code) {
   return { ok: true, dir, cmd: node, args: [script], log: '' };
 }
 
-module.exports = { hasJava, hasRust, hasNode, findNode, compileJava, compileRust, prepareJs };
+module.exports = { hasJava, hasRust, hasNode, findNode, compileJava, javaArgs, compileRust, prepareJs };

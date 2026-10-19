@@ -12,6 +12,7 @@ const http = require('node:http');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'satori-m5-'));
 process.env.SATORI_DATA_DIR = tmp;
 process.env.PORT = '3138';
+process.env.SATORI_DEMO_TRIGGERS = '1';
 process.env.SATORI_WEBHOOK_DELAY_MS = '20';
 const BASE = 'http://localhost:3138';
 

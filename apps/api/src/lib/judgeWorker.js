@@ -4,6 +4,10 @@ const { store } = require('./store');
 const J = require('../../../../packages/judge/src/judge');
 const { fireWebhooks } = require('../routes/webhooks');
 
+// Fixture triggers are for demo/tests only. Production code must not be able to
+// force a verdict by putting a magic string in a comment.
+const DEMO_TRIGGERS = process.env.SATORI_DEMO_TRIGGERS === '1';
+
 // ---- judge worker ----
 let judging = false;
 async function processQueue() {
@@ -22,9 +26,14 @@ async function processQueue() {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // One descriptor per serviced language: { dir, cmd, args, log }.
 // Toolchain missing -> null -> simulate (submit is flagged `simulated: true`).
-function prepareExec(s, failCE) {
-  if ((s.lang === 'C' || s.lang === 'C++17') && J.hasGpp()) {
-    const c = J.compileCpp(s.code, { lang: s.lang });
+function prepareExec(s, failCE, problem) {
+  if (s.lang === 'C' && J.hasGcc()) {
+    const c = J.compileC(s.code);
+    if (!c.ok) { failCE(c.log, c.dir); return false; }
+    return { dir: c.dir, cmd: c.binary, args: [], log: c.log };
+  }
+  if (s.lang === 'C++17' && J.hasGpp()) {
+    const c = J.compileCpp(s.code);
     if (!c.ok) { failCE(c.log, c.dir); return false; }
     return { dir: c.dir, cmd: c.binary, args: [], log: c.log };
   }
@@ -34,7 +43,7 @@ function prepareExec(s, failCE) {
     return { dir: py.dir, cmd: py.cmd[0], args: [...py.cmd.slice(1), py.script], log: '' };
   }
   if (s.lang === 'Java' && J.hasJava()) {
-    const jv = J.compileJava(s.code);
+    const jv = J.compileJava(s.code, { memoryMb: problem && problem.limits ? problem.limits.memoryMb : undefined });
     if (!jv.ok) { failCE(jv.log, jv.dir); return false; }
     return { dir: jv.dir, cmd: jv.cmd, args: jv.args, log: '' };
   }
@@ -61,7 +70,7 @@ async function judgeOne(s) {
   setStatus({ status: 'CMP', testsDone: 0 });
   await sleep(120);
   // compile-error simulation
-  if (String(s.code).includes('CE-TRIGGER') || String(s.code).length < 2) {
+  if ((DEMO_TRIGGERS && String(s.code).includes('CE-TRIGGER')) || String(s.code).length < 2) {
     setStatus({ status: 'CE', judgedAt: new Date().toISOString(), compileLog: 'error: expected ; before } (line 3). Fix hint: check headers/flags.' });
     notify(s, 'CE');
     if (!s.sampleOnly) fireWebhooks('submit.judged', { submitId: s.id, verdict: 'CE', contestId: s.contestId, problemId: s.problemId });
@@ -98,26 +107,26 @@ async function judgeOne(s) {
     notify(s, 'CE');
     if (!s.sampleOnly) fireWebhooks('submit.judged', { submitId: s.id, verdict: 'CE', contestId: s.contestId, problemId: s.problemId });
   };
-  const exec = prepareExec(s, failCE);
+  const exec = prepareExec(s, failCE, problem);
   if (exec === false) return;
   if (exec) setStatus({ status: 'TST', compileLog: String(exec.log || '') });
   for (let i = 0; i < cases.length; i++) {
     const tc = cases[i];
     setStatus({ status: 'TST', testsTotal: cases.length, testsDone: i });
     await sleep(80);
-    if (String(s.code).includes('TLE-TRIGGER')) {
+    if (DEMO_TRIGGERS && String(s.code).includes('TLE-TRIGGER')) {
       perTest.push({ n: i + 1, verdict: 'TLE', timeMs: effLimit, msg: 'fixture: simulate timeout', group: (tc.group && tc.group.name) || null, points: 0 });
       continue;
     }
-    if (String(s.code).includes('MLE-TRIGGER')) {
+    if (DEMO_TRIGGERS && String(s.code).includes('MLE-TRIGGER')) {
       perTest.push({ n: i + 1, verdict: 'MLE', timeMs: 0, msg: 'fixture: simulate memory blowup', group: (tc.group && tc.group.name) || null, points: 0 });
       continue;
     }
-    if (String(s.code).includes('RE-TRIGGER')) {
+    if (DEMO_TRIGGERS && String(s.code).includes('RE-TRIGGER')) {
       perTest.push({ n: i + 1, verdict: 'RE', timeMs: 0, msg: 'fixture: simulate exit code 1', group: (tc.group && tc.group.name) || null, points: 0 });
       continue;
     }
-    if (String(s.code).includes('WA-TRIGGER')) {
+    if (DEMO_TRIGGERS && String(s.code).includes('WA-TRIGGER')) {
       perTest.push({ n: i + 1, verdict: 'WA', timeMs: 0, msg: `expected ${JSON.stringify(String(tc.expected).slice(0, 40))} got "wrong"`, group: (tc.group && tc.group.name) || null, points: 0, expected: String(tc.expected ?? ''), got: 'wrong' });
       continue;
     }
@@ -149,7 +158,7 @@ async function judgeOne(s) {
       continue;
     }
     const t0 = Date.now();
-    const out = J.simulate(s.code, s.lang, tc.input);
+    const out = J.simulate(s.code, s.lang, tc.input, { demo: DEMO_TRIGGERS });
     const ok = J.checkOutput(tc.checker || 'token', tc.expected, out);
     const w = caseWeight(tc);
     perTest.push({

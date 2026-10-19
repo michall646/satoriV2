@@ -10,6 +10,7 @@ const path = require('node:path');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'satori-p1-'));
 process.env.SATORI_DATA_DIR = tmp;
 process.env.PORT = '3134';
+process.env.SATORI_DEMO_TRIGGERS = '1';
 const BASE = 'http://localhost:3134';
 
 let server;

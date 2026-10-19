@@ -7,7 +7,7 @@ const { LANGUAGES } = require('../../../apps/api/src/lib/validators');
 const CPP = require('./cpp');
 const PY = require('./python');
 const RUNNERS = require('./runners');
-const { runProcess } = require('./run');
+const { runProcess, clampTimeMs } = require('./run');
 
 const QUEUE = []; // submitIds in order
 const LISTENERS = new Map(); // submitId -> Set(res)
@@ -59,7 +59,10 @@ function checkOutput(checker, expected, got, tol = 1e-6) {
 
 // Simulated fallback: only used when the judge host has no toolchain for the
 // language. The submit is flagged `simulated: true` — never presented as a real run.
-function simulate(code, lang, input) {
+// C8: magic *-TRIGGER fixtures are harness-only; real code must not force a
+// verdict, so they fire only when the caller opts in with { demo: true }.
+function simulate(code, lang, input, opts = {}) {
+  const demo = opts.demo === true;
   const nums = (String(input).match(/-?\d+(\.\d+)?/g) || []).map(Number);
   if (/sort/i.test(code) || /sorted/.test(code)) {
     const sorted = [...nums].sort((a, b) => a - b);
@@ -71,8 +74,8 @@ function simulate(code, lang, input) {
       if (String(input).includes('10 20')) return '30\n';
     }
   }
-  if (code.includes('WA-TRIGGER')) return 'wrong\n';
-  if (code.includes('TLE-TRIGGER')) return { __sleep: true };
+  if (demo && code.includes('WA-TRIGGER')) return 'wrong\n';
+  if (demo && code.includes('TLE-TRIGGER')) return { __sleep: true };
   if (nums.length > 0) return `${nums.reduce((a, b) => a + b, 0)}\n`;
   if (String(code).includes('ok')) return 'ok\n';
   return '';
@@ -80,7 +83,7 @@ function simulate(code, lang, input) {
 
 // Serviced languages only (D1): SQL + CUDA retired — submissions blocked in the API.
 const LANGUAGE_MATRIX = [
-  { lang: 'C', version: 'gcc', flags: '-O2 -std=c17 -lm', hello: 'int main(){printf("hi\\n");}' },
+  { lang: 'C', version: 'gcc', flags: '-std=c17 -O2 -lm', hello: '#include <stdio.h>\nint main(void){printf("hi\\n");return 0;}' },
   { lang: 'C++17', version: 'g++', flags: '-O2 -std=c++17', hello: '#include<bits/stdc++.h>\nint main(){std::cout<<"hi\\n";}' },
   { lang: 'Java', version: 'OpenJDK', flags: 'javac Main.java', hello: 'class Main{public static void main(String[]a){System.out.println("hi");}}' },
   { lang: 'Python', version: '3.x', flags: 'python main.py', hello: 'print("hi")', timeMult: 2 },
@@ -92,7 +95,7 @@ let AVAIL = null;
 function languageAvailability() {
   if (!AVAIL) {
     AVAIL = {
-      C: CPP.hasGpp(),
+      C: CPP.hasGcc(),
       'C++17': CPP.hasGpp(),
       Python: PY.hasPython(),
       Java: RUNNERS.hasJava(),
@@ -104,10 +107,10 @@ function languageAvailability() {
 }
 
 module.exports = {
-  QUEUE, pushEvent, subscribe, unsubscribe, queuePosition, checkOutput, simulate, LANGUAGE_MATRIX, LANGUAGES, languageAvailability, runProcess,
-  hasGpp: CPP.hasGpp, compileCpp: CPP.compileCpp, runBinary: CPP.runBinary, cleanupDir: CPP.cleanupDir,
+  QUEUE, pushEvent, subscribe, unsubscribe, queuePosition, checkOutput, simulate, LANGUAGE_MATRIX, LANGUAGES, languageAvailability, runProcess, clampTimeMs,
+  hasGcc: CPP.hasGcc, hasGpp: CPP.hasGpp, compileC: CPP.compileC, compileCpp: CPP.compileCpp, runBinary: CPP.runBinary, cleanupDir: CPP.cleanupDir,
   hasPython: PY.hasPython, preparePython: PY.preparePython, runPythonScript: PY.runPythonScript,
-  hasJava: RUNNERS.hasJava, compileJava: RUNNERS.compileJava,
+  hasJava: RUNNERS.hasJava, compileJava: RUNNERS.compileJava, javaArgs: RUNNERS.javaArgs,
   hasRust: RUNNERS.hasRust, compileRust: RUNNERS.compileRust,
   hasNode: RUNNERS.hasNode, prepareJs: RUNNERS.prepareJs,
 };
