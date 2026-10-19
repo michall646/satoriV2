@@ -2,16 +2,19 @@
 // Run: node apps/api/src/server.js  (PORT default 3001)
 'use strict';
 const http = require('node:http');
+const { performance } = require('node:perf_hooks');
 const { URL } = require('node:url');
 const { store } = require('./lib/store');
 const { send, handleOptions } = require('./lib/http');
 const judgeQueue = require('./lib/judgeQueue');
+const metrics = require('./lib/metrics');
 
 const PORT = Number(process.env.PORT || 3001);
 
 // Route modules are checked in order. Each returns true when it handled the request.
 const routes = [
   require('./routes/meta'),
+  require('./routes/metrics'),
   require('./routes/auth'),
   require('./routes/contests'),
   require('./routes/integrity'),
@@ -32,17 +35,37 @@ try {
 }
 
 // ---- router ----
+// performance.now() is monotonic, so request durations survive wall-clock
+// adjustments. Metrics failures must never break a request.
 async function handler(req, res) {
+  const startedAt = performance.now();
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
   const m = req.method;
-  if (handleOptions(req, res, m)) return;
 
-  for (const route of routes) {
-    if (await route.handle(req, res, u, p, m)) return;
-    if (res.headersSent) return;
+  let recorded = false;
+  const record = () => {
+    if (recorded) return;
+    recorded = true;
+    try {
+      metrics.observeRequest(m, p, res.statusCode, performance.now() - startedAt);
+    } catch { /* observability is best-effort */ }
+  };
+  // `finally` covers completed responses deterministically; `close` also covers
+  // aborted clients and SSE streams that end without the handler returning.
+  res.once('close', record);
+
+  try {
+    if (handleOptions(req, res, m)) return;
+
+    for (const route of routes) {
+      if (await route.handle(req, res, u, p, m)) return;
+      if (res.headersSent) return;
+    }
+    send(res, 404, { error: { code: 'NOT_FOUND', message: `No route ${m} ${p}.`, hint: 'See /api/openapi.json.' } });
+  } finally {
+    record();
   }
-  send(res, 404, { error: { code: 'NOT_FOUND', message: `No route ${m} ${p}.`, hint: 'See /api/openapi.json.' } });
 }
 
 const server = http.createServer(handler);
