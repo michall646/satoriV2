@@ -1,6 +1,7 @@
 // Manage → Settings. Grouped form (Basics · Schedule · Access · Scoring · Judging · Exam).
+// Saves preserve unknown settings/scoring keys; grade scale is the single source for all grades.
 'use client';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, STR, getLang } from '../../../../../lib/client';
 import { Button, Skeleton } from '../../../../../components/ui';
 import { toast } from '../../../../../components/ui/Toast';
@@ -10,9 +11,53 @@ import { goalForMode } from '../../../../../components/contest/settingDefs';
 import { PageHeader } from '../../../../../components/manage';
 import { useManage } from '../../../../../components/manage/context';
 
+const DEFAULT_GRADE_SCALE = '90:5,75:4,50:3,0:2';
+
+const LABELS = {
+  en: {
+    gradeScale: 'Grade scale (pct:grade)', gradeScaleHint: 'Used by the student page, teacher preview, LABS board and CSV.',
+    dropWorst: 'Drop worst N', scoringModeHint: 'Ranking mode follows the contest template.',
+    badScale: 'Grade scale must look like 90:5,75:4,50:3,0:2 (percent:grade).',
+    badDropWorst: 'Drop worst N must be a whole number ≥ 0.', badBestOfK: 'Best-of-K must be a whole number ≥ 1.',
+    badFloor: 'Late floor must be between 0 and 100.', saveFailed: 'Save failed:',
+  },
+  pl: {
+    gradeScale: 'Skala ocen (pkt:ocena)', gradeScaleHint: 'Używana przez stronę studenta, podgląd, tablicę LABS i CSV.',
+    dropWorst: 'Odrzuć najgorsze N', scoringModeHint: 'Tryb rankingu wynika z szablonu konkursu.',
+    badScale: 'Skala ocen musi wyglądać jak 90:5,75:4,50:3,0:2 (procent:ocena).',
+    badDropWorst: 'Odrzuć najgorsze N musi być liczbą całkowitą ≥ 0.', badBestOfK: 'Najlepsze z K musi być liczbą całkowitą ≥ 1.',
+    badFloor: 'Dolny limit kary musi być między 0 a 100.', saveFailed: 'Zapis nieudany:',
+  },
+};
+
+function scaleToText(raw) {
+  if (Array.isArray(raw)) return raw.map((s) => `${s.min}:${s.grade}`).join(',');
+  return String(raw || '');
+}
+
+function parseScaleText(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const out = [];
+  for (const part of text.split(',')) {
+    const [min, grade] = part.split(':').map((x) => Number(String(x).trim()));
+    if (!Number.isFinite(min) || !Number.isFinite(grade) || min < 0 || min > 100) return null;
+    out.push({ min, grade });
+  }
+  return out.length ? out.sort((a, b) => b.min - a.min) : null;
+}
+
+function intOrNull(raw, fallback = null) {
+  if (raw === '' || raw == null) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 function initSettings(contest) {
   const s = contest.settings || {};
   const sc = s.scoring || {};
+  const dp = s.deadlinePolicy || {};
+  const penaltyMin = s.penaltyMin ?? sc.penaltyMin ?? sc.wrongTryMin ?? contest.penalty ?? 20;
   return {
     name: contest.name || '',
     description: contest.description || '',
@@ -20,82 +65,114 @@ function initSettings(contest) {
     registration: contest.registration || 'open',
     autoApproveRegex: contest.autoApproveRegex || '',
     startAt: contest.startAt || '',
-    stopAt: contest.stopAt || '',
+    stopAt: contest.endAt || contest.stopAt || '',
     freezeAt: contest.freezeAt || '',
     defaultDeadline: s.defaultDeadline || '',
-    scoreboardMode: contest.scoreboardMode || contest.mode || '',
-    penalty: contest.penalty ?? 20,
+    penalty: penaltyMin,
+    gradeScale: scaleToText(s.gradeScale) || DEFAULT_GRADE_SCALE,
     judging: { verdictVisibility: s.verdictVisibility || 'all', allowSampleRun: s.allowSampleRun !== false },
     exam: s.exam || { fullscreen: false, pasteBlock: false, shuffle: false, ipAllow: '' },
     board: s.board || { mode: 'everyone', freezeLastMin: '' },
     scoring: {
-      enabled: !!s.deadlinePolicy?.enabled,
-      lateMode: s.deadlinePolicy?.lateMode || 'soft',
-      penaltyKind: s.deadlinePolicy?.penaltyKind || 'perDay',
-      penaltyValue: s.deadlinePolicy?.penaltyValue ?? s.latePenaltyPerDay ?? 5,
-      graceMin: s.deadlinePolicy?.graceMin ?? 0,
-      capZeroAfterDays: s.deadlinePolicy?.capZeroAfterDays ?? null,
+      enabled: !!dp.enabled,
+      lateMode: dp.lateMode || 'soft',
+      penaltyKind: dp.penaltyKind || 'perDay',
+      penaltyValue: dp.penaltyValue ?? s.latePenaltyPerDay ?? 5,
+      graceMin: dp.graceMin ?? 0,
+      capZeroAfterDays: dp.capZeroAfterDays ?? null,
       floorPct: sc.floorPct ?? '',
       rule: sc.rule || 'best',
       tiebreak: sc.tiebreak || ['solves', 'time'],
       maxTries: sc.maxTries ?? '',
       missDeduction: sc.missDeduction || {},
-      tiers: s.deadlinePolicy?.tiers || [],
+      tiers: dp.tiers || [],
       exemptCE: sc.exemptCE !== false,
-      penaltyMin: contest.penalty ?? 20,
-      wrongTryMin: sc.wrongTryMin ?? contest.penalty ?? 20,
-      bestOfK: s.bestOfK ?? '',
-      latePenaltyPerDay: s.latePenaltyPerDay ?? s.deadlinePolicy?.penaltyValue ?? 5,
+      penaltyMin,
+      wrongTryMin: sc.wrongTryMin ?? penaltyMin,
+      bestOfK: s.bestOfK ?? sc.bestOfK ?? '',
+      dropWorstN: sc.dropWorstN ?? '',
+      latePenaltyPerDay: s.latePenaltyPerDay ?? dp.penaltyValue ?? 5,
     },
   };
 }
 
 export default function ManageSettingsPage({ params }) {
   const t = STR[getLang()];
+  const L = LABELS[getLang()] || LABELS.en;
   const { contest, reload } = useManage();
   const [settings, setSettings] = useState(() => initSettings(contest));
+  const [baseline, setBaseline] = useState(() => JSON.stringify(initSettings(contest)));
   const [saving, setSaving] = useState(false);
+  const dirty = useMemo(() => JSON.stringify(settings) !== baseline, [settings, baseline]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    function warn(e) { e.preventDefault(); e.returnValue = ''; }
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   async function save() {
     const sc = settings.scoring || {};
+    const scale = parseScaleText(settings.gradeScale);
+    if (!scale) { toast(L.badScale, 'danger'); return; }
+    const dropWorstN = intOrNull(sc.dropWorstN, undefined);
+    if (dropWorstN !== undefined && (!Number.isInteger(dropWorstN) || dropWorstN < 0)) { toast(L.badDropWorst, 'danger'); return; }
+    const bestOfK = intOrNull(sc.bestOfK, undefined);
+    if (bestOfK !== undefined && (!Number.isInteger(bestOfK) || bestOfK < 1)) { toast(L.badBestOfK, 'danger'); return; }
+    const floorPct = intOrNull(sc.floorPct, undefined);
+    if (floorPct !== undefined && (floorPct < 0 || floorPct > 100)) { toast(L.badFloor, 'danger'); return; }
+
+    const baseSettings = contest.settings || {};
+    const baseScoring = baseSettings.scoring || {};
+    const penaltyMin = Number(sc.penaltyMin ?? sc.wrongTryMin ?? settings.penalty) || 0;
     const payload = {
       name: settings.name, description: settings.description, mode: settings.mode,
       registration: settings.registration, autoApproveRegex: settings.autoApproveRegex,
       startAt: settings.startAt, stopAt: settings.stopAt, freezeAt: settings.freezeAt,
-      scoreboardMode: settings.scoreboardMode,
-      penalty: Number(sc.wrongTryMin ?? sc.penaltyMin ?? settings.penalty) || 0,
+      // Canonical scoring mode follows the contest template; the old free-text field is gone.
+      scoreboardMode: settings.mode || contest.scoreboardMode || contest.mode,
+      penalty: penaltyMin,
       settings: {
-        ...(contest.settings || {}),
+        ...baseSettings,
+        penaltyMin,
         defaultDeadline: settings.defaultDeadline || undefined,
-        verdictVisibility: settings.judging?.verdictVisibility || contest.settings?.verdictVisibility || 'all',
-        allowSampleRun: settings.judging?.allowSampleRun ?? contest.settings?.allowSampleRun ?? true,
+        gradeScale: scale.map((x) => `${x.min}:${x.grade}`).join(','),
+        verdictVisibility: settings.judging?.verdictVisibility || baseSettings.verdictVisibility || 'all',
+        allowSampleRun: settings.judging?.allowSampleRun ?? baseSettings.allowSampleRun ?? true,
         deadlinePolicy: {
+          ...(baseSettings.deadlinePolicy || {}),
           enabled: !!sc.enabled, lateMode: sc.lateMode || 'soft',
           penaltyKind: sc.penaltyKind || 'perDay', penaltyValue: Number(sc.penaltyValue ?? 0),
-          graceMin: Number(sc.graceMin ?? 0), capZeroAfterDays: sc.capZeroAfterDays ?? null,
+          graceMin: Number(sc.graceMin ?? 0),
+          capZeroAfterDays: sc.capZeroAfterDays === '' || sc.capZeroAfterDays == null ? null : Number(sc.capZeroAfterDays),
           tiers: Array.isArray(sc.tiers) && sc.tiers.length ? sc.tiers : undefined,
         },
         latePenaltyPerDay: Number(sc.latePenaltyPerDay ?? sc.penaltyValue ?? 0),
-        bestOfK: sc.bestOfK === '' ? undefined : Number(sc.bestOfK),
+        bestOfK: bestOfK === undefined ? undefined : bestOfK,
         scoring: {
+          ...baseScoring,
           rule: sc.rule || 'best',
-          wrongTryMin: Number(sc.wrongTryMin ?? sc.penaltyMin ?? 0),
+          wrongTryMin: Number(sc.wrongTryMin ?? penaltyMin),
+          penaltyMin,
           exemptCE: sc.exemptCE !== false,
-          floorPct: sc.floorPct === '' ? undefined : Number(sc.floorPct),
+          floorPct: floorPct === undefined ? undefined : floorPct,
           tiebreak: sc.tiebreak || ['solves', 'time'],
-          maxTries: sc.maxTries === '' ? undefined : Number(sc.maxTries),
+          maxTries: intOrNull(sc.maxTries, undefined),
           missDeduction: sc.missDeduction?.value > 0 ? { value: Number(sc.missDeduction.value), accrue: sc.missDeduction.accrue || 'on-solve' } : undefined,
+          dropWorstN: dropWorstN === undefined ? undefined : dropWorstN,
         },
-        board: settings.board || contest.settings?.board || { mode: 'everyone' },
-        exam: settings.exam || contest.settings?.exam || {},
+        board: { ...(baseSettings.board || {}), ...(settings.board || {}) },
+        exam: settings.exam || baseSettings.exam || {},
       },
     };
     setSaving(true);
     try {
       await api(`/api/contests/${params.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      setBaseline(JSON.stringify(settings));
       toast(t.mset_saved, 'success');
       await reload();
-    } catch (e) { toast(`${t.integrity_save_failed} ${e.message}`, 'danger'); }
+    } catch (e) { toast(`${L.saveFailed} ${e.message}`, 'danger'); }
     finally { setSaving(false); }
   }
 
@@ -106,7 +183,7 @@ export default function ManageSettingsPage({ params }) {
       <PageHeader
         title={t.mset_title}
         description={t.mset_subtitle}
-        actions={<Button onClick={save} disabled={saving}>{saving ? t.common_saving : t.mset_save_changes}</Button>}
+        actions={<Button onClick={save} disabled={saving || !dirty}>{saving ? t.common_saving : t.mset_save_changes}</Button>}
       />
 
       <div>
@@ -116,7 +193,7 @@ export default function ManageSettingsPage({ params }) {
             <option value="">—</option>{['ICPC', 'IOI', 'LABS', 'EXAM', 'PLAYGROUND', 'VIRTUAL'].map((m) => <option key={m} value={m}>{m}</option>)}
           </FSelect>
           <FTextarea infoKey="description" label={t.mset_description} value={settings.description} onChange={(e) => setSettings({ ...settings, description: e.target.value })} rows={2} />
-          <FInput infoKey="scoreboardMode" label={t.mset_scoreboard} value={settings.scoreboardMode} onChange={(e) => setSettings({ ...settings, scoreboardMode: e.target.value })} />
+          <p className="text-xs md:col-span-2" style={{ color: 'var(--muted)' }}>{L.scoringModeHint}</p>
         </Section>
 
         <Section title={t.mset_schedule}>
@@ -138,6 +215,9 @@ export default function ManageSettingsPage({ params }) {
 
         <Section title={t.mset_scoring}>
           <FInput infoKey="wrongTryMin" label={t.mset_penalty} value={settings.scoring?.wrongTryMin ?? settings.penalty} onChange={(e) => setSettings({ ...settings, penalty: Number(e.target.value), scoring: { ...(settings.scoring || {}), wrongTryMin: Number(e.target.value), penaltyMin: Number(e.target.value) } })} hint={t.mset_penalty_hint} />
+          <FInput label={L.dropWorst} value={settings.scoring?.dropWorstN ?? ''} onChange={(e) => setSettings({ ...settings, scoring: { ...(settings.scoring || {}), dropWorstN: e.target.value } })} placeholder="1" />
+          <FInput label={L.gradeScale} value={settings.gradeScale} onChange={(e) => setSettings({ ...settings, gradeScale: e.target.value })} placeholder={DEFAULT_GRADE_SCALE} />
+          <p className="text-xs md:col-span-2" style={{ color: 'var(--muted)' }}>{L.gradeScaleHint}</p>
         </Section>
       </div>
 
@@ -164,7 +244,7 @@ export default function ManageSettingsPage({ params }) {
       </div>
 
       <div className="flex items-center gap-3 mt-4">
-        <Button onClick={save} disabled={saving}>{saving ? t.common_saving : t.mset_save_changes}</Button>
+        <Button onClick={save} disabled={saving || !dirty}>{saving ? t.common_saving : t.mset_save_changes}</Button>
         <span className="text-xs" style={{ color: 'var(--muted)' }}>{t.mset_usos_note}</span>
       </div>
     </div>

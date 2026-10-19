@@ -1,4 +1,4 @@
-// Manage → Members & teams. Pending approvals, CSV import, role add, team roster.
+// Manage → Members & teams. Pending approvals, CSV import, roles/demote, USOS IDs, team roster.
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { api, STR, getLang } from '../../../../../lib/client';
@@ -10,13 +10,29 @@ import { useManage } from '../../../../../components/manage/context';
 // Explicit map so scanner sees static key references (dynamic t[expr] alone reads as DEAD).
 const ROLE_KEY = { participant: 'members_role_participant', teacher: 'members_role_teacher', jury: 'members_role_jury' };
 
+const LABELS = {
+  en: {
+    membersAll: 'Members & staff', role: 'Role', usosId: 'USOS ID', demote: 'Demote', demoted: 'Demoted', unknownId: 'unknown',
+    usosImport: 'Import USOS IDs', usosImportBtn: 'Import USOS IDs', usosImportHint: 'One login,usos_id per line (header optional).',
+    usosPaste: 'Paste at least one login,usos_id row.', usosImported: 'USOS IDs updated', usosSkipped: 'skipped (not members)',
+  },
+  pl: {
+    membersAll: 'Uczestnicy i kadra', role: 'Rola', usosId: 'ID USOS', demote: 'Zdegraduj', demoted: 'Zdegradowano', unknownId: 'nieznany',
+    usosImport: 'Import ID USOS', usosImportBtn: 'Importuj ID USOS', usosImportHint: 'Jeden login,id_usos na linię (nagłówek opcjonalny).',
+    usosPaste: 'Wklej co najmniej jeden wiersz login,id_usos.', usosImported: 'Zaktualizowano ID USOS', usosSkipped: 'pominięto (nie są członkami)',
+  },
+};
+
 export default function ManageMembersPage({ params }) {
   const t = STR[getLang()];
-  const { reload } = useManage();
+  const L = LABELS[getLang()] || LABELS.en;
+  const { contest, reload } = useManage();
   const [mem, setMem] = useState(null);
   const [teams, setTeams] = useState([]);
+  const [usos, setUsos] = useState({});
   const [q, setQ] = useState('');
   const [csv, setCsv] = useState('');
+  const [usosCsv, setUsosCsv] = useState('');
   const [busy, setBusy] = useState(false);
   const [teamName, setTeamName] = useState('');
   const [role, setRole] = useState('participant');
@@ -27,6 +43,23 @@ export default function ManageMembersPage({ params }) {
     try { setTeams((await api(`/api/contests/${params.id}/teams`)).items || []); } catch { setTeams([]); }
   }
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [params.id]);
+
+  // The members route does not expose USOS IDs yet; the grade matrix does (manager-only).
+  async function loadUsos() {
+    try {
+      const m = await api(`/api/contests/${params.id}/grade/matrix`);
+      setUsos(Object.fromEntries((m.rows || []).map((r) => [String(r.id), r.usosId || ''])));
+    } catch { setUsos({}); }
+  }
+  useEffect(() => { loadUsos(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [params.id]);
+
+  const adminIds = useMemo(() => new Set(((contest && contest.admins) || []).map(String)), [contest]);
+  const memberLogin = useMemo(() => Object.fromEntries(((mem && mem.members) || []).map((u) => [String(u.id), u.login])), [mem]);
+
+  function roleOf(u) {
+    if (u.role && ROLE_KEY[u.role]) return u.role;
+    return adminIds.has(String(u.id)) ? 'teacher' : 'participant';
+  }
 
   const pendingFiltered = useMemo(() => {
     const ql = q.toLowerCase();
@@ -65,11 +98,42 @@ export default function ManageMembersPage({ params }) {
     finally { setBusy(false); }
   }
 
+  async function importUsos() {
+    if (!usosCsv.trim()) { toast(L.usosPaste, 'warn'); return; }
+    setBusy(true);
+    try {
+      const r = await api(`/api/contests/${params.id}/grade/usos-import`, { method: 'POST', body: JSON.stringify({ csv: usosCsv }) });
+      const extra = [
+        r.unknown?.length ? `${t.members_unknown} ${r.unknown.join(', ')}` : '',
+        r.skipped?.length ? `${L.usosSkipped} ${r.skipped.join(', ')}` : '',
+        r.invalid?.length ? `${t.members_unknown} ${r.invalid.join(', ')}` : '',
+      ].filter(Boolean).join(' · ');
+      toast(`${L.usosImported} ${r.updated ?? 0}${extra ? ` · ${extra}` : ''}.`, r.updated ? 'success' : 'warn');
+      setUsosCsv('');
+      await loadUsos();
+    } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
+    finally { setBusy(false); }
+  }
+
   async function removeMember(id) {
     setBusy(true);
     try {
       await api(`/api/contests/${params.id}/members/${id}`, { method: 'DELETE' });
       toast(t.members_removed, 'success');
+      await load(); await reload();
+    } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
+    finally { setBusy(false); }
+  }
+
+  // Demote removes contest-admin rights while keeping the user as a participant.
+  // Server follow-up: persist teacher/jury roles and remove from `admins` in the members API.
+  async function demote(u) {
+    if (!contest) return;
+    setBusy(true);
+    try {
+      const admins = (contest.admins || []).filter((id) => String(id) !== String(u.id));
+      await api(`/api/contests/${params.id}`, { method: 'PATCH', body: JSON.stringify({ admins }) });
+      toast(`${L.demoted} ${u.login}.`, 'success');
       await load(); await reload();
     } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
     finally { setBusy(false); }
@@ -130,16 +194,26 @@ export default function ManageMembersPage({ params }) {
         </div>
       </PageSection>
 
-      <PageSection title={t.members_participants} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{mem.members.length}</span>}>
+      <PageSection title={L.membersAll} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{mem.members.length}</span>}>
         {mem.members.length ? (
-          <ul className="text-sm max-h-64 overflow-auto">
-            {mem.members.map((u) => (
-              <li key={u.id} className="py-1.5 border-t flex items-center justify-between gap-2" style={{ borderColor: 'var(--border)' }}>
-                <span className="type-mono">{u.login}</span>
-                <Button variant="danger" className="!py-0.5" disabled={busy} onClick={() => removeMember(u.id)}>{t.common_remove}</Button>
-              </li>
-            ))}
-          </ul>
+          <Table
+            columns={[
+              { key: 'login', label: 'Login', render: (u) => <span className="type-mono">{u.login}</span> },
+              { key: 'role', label: L.role, render: (u) => <span>{t[ROLE_KEY[roleOf(u)]] || roleOf(u)}</span> },
+              { key: 'usosId', label: L.usosId, render: (u) => <span className="type-mono">{u.usosId || usos[String(u.id)] || '—'}</span> },
+              {
+                key: 'actions', label: t.prob_actions, align: 'right', render: (u) => (
+                  <span className="flex gap-1 justify-end">
+                    {roleOf(u) !== 'participant' ? (
+                      <Button variant="secondary" className="!py-0.5" disabled={busy} onClick={() => demote(u)}>{L.demote}</Button>
+                    ) : null}
+                    <Button variant="danger" className="!py-0.5" disabled={busy} onClick={() => removeMember(u.id)}>{t.common_remove}</Button>
+                  </span>
+                ),
+              },
+            ]}
+            rows={mem.members.map((u) => ({ ...u, key: u.id }))}
+          />
         ) : <p className="text-sm" style={{ color: 'var(--muted)' }}>{t.members_empty}</p>}
         <div className="mt-4">
           <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{t.members_add_hint}</p>
@@ -171,6 +245,18 @@ export default function ManageMembersPage({ params }) {
         <Button variant="secondary" className="mt-2" onClick={importCsv} disabled={busy}>{t.members_import_btn}</Button>
       </PageSection>
 
+      <PageSection title={L.usosImport} hint={L.usosImportHint}>
+        <textarea
+          value={usosCsv}
+          onChange={(e) => setUsosCsv(e.target.value)}
+          rows={3}
+          placeholder={'jan_kowalski,123456\nanna_nowak,234567'}
+          className="w-full rounded px-3 py-2 text-sm focus-ring"
+          style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--fg)', fontFamily: 'var(--font-mono)' }}
+        />
+        <Button variant="secondary" className="mt-2" onClick={importUsos} disabled={busy}>{L.usosImportBtn}</Button>
+      </PageSection>
+
       <PageSection title={t.me_teams_title} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{teams.length}</span>}>
         <div className="flex gap-2 flex-wrap">
           <Input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder={t.members_team_ph} className="!w-56" aria-label={t.members_team_aria} />
@@ -182,7 +268,13 @@ export default function ManageMembersPage({ params }) {
               columns={[
                 { key: 'name', label: t.members_scoreboard_name, render: (team) => team.scoreboardName || team.name },
                 { key: 'identity', label: t.members_login_identity, render: (team) => <span className="type-mono">{team.loginIdentity || team.name || '—'}</span> },
-                { key: 'members', label: t.members_col_members, render: (team) => (team.members || team.memberIds || []).length || '—' },
+                {
+                  key: 'members', label: t.members_col_members, render: (team) => {
+                    const ids = team.members || team.memberIds || [];
+                    if (!ids.length) return '—';
+                    return <span className="type-mono text-xs">{ids.map((id) => memberLogin[String(id)] || `${L.unknownId} #${id}`).join(', ')}</span>;
+                  },
+                },
               ]}
               rows={teams.map((team) => ({ ...team, key: team.id || team.name }))}
             />
