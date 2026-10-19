@@ -27,6 +27,7 @@ tags:
   - name: comms
   - name: integrity
   - name: webhooks
+  - name: teams
   - name: account
 paths:
   /api/health:
@@ -163,20 +164,61 @@ paths:
       parameters:
         - { $ref: '#/components/parameters/ContestId' }
         - { name: uid, in: path, required: true, schema: { type: string } }
+  /api/contests/{id}/teams:
+    get:
+      tags: [teams]
+      summary: List teams and rosters (contest members)
+      parameters: [{ $ref: '#/components/parameters/ContestId' }]
+    post:
+      tags: [teams]
+      summary: Create a team from contest members (members/admins)
+      parameters: [{ $ref: '#/components/parameters/ContestId' }]
+  /api/contests/{id}/teams/{tid}:
+    patch:
+      tags: [teams]
+      summary: Rename a team or change scoreboard identity (captain/admins)
+      parameters:
+        - { $ref: '#/components/parameters/ContestId' }
+        - { name: tid, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [teams]
+      summary: Delete a team (captain/admins)
+      parameters:
+        - { $ref: '#/components/parameters/ContestId' }
+        - { name: tid, in: path, required: true, schema: { type: integer } }
+  /api/contests/{id}/teams/{tid}/join:
+    post:
+      tags: [teams]
+      summary: Join a team as a contest member
+      parameters:
+        - { $ref: '#/components/parameters/ContestId' }
+        - { name: tid, in: path, required: true, schema: { type: integer } }
+  /api/contests/{id}/teams/{tid}/leave:
+    post:
+      tags: [teams]
+      summary: Leave a team
+      parameters:
+        - { $ref: '#/components/parameters/ContestId' }
+        - { name: tid, in: path, required: true, schema: { type: integer } }
+  /api/contests/{id}/teams/{tid}/invite:
+    post:
+      tags: [teams]
+      summary: Invite a contest member by login (captain/admins)
+      parameters:
+        - { $ref: '#/components/parameters/ContestId' }
+        - { name: tid, in: path, required: true, schema: { type: integer } }
+  /api/contests/{id}/teams/{tid}/members/{uid}:
+    delete:
+      tags: [teams]
+      summary: Remove a team member (captain/admins)
+      parameters:
+        - { $ref: '#/components/parameters/ContestId' }
+        - { name: tid, in: path, required: true, schema: { type: integer } }
+        - { name: uid, in: path, required: true, schema: { type: integer } }
   /api/contests/{id}/duplicate:
     post:
       tags: [contests]
       summary: Clone contest, problem sets, problems, tests, and news
-      parameters: [{ $ref: '#/components/parameters/ContestId' }]
-  /api/contests/{id}/teams:
-    get:
-      tags: [contests]
-      summary: List teams
-      security: []
-      parameters: [{ $ref: '#/components/parameters/ContestId' }]
-    post:
-      tags: [contests]
-      summary: Create team (currently persists memberIds; members is the planned canonical field)
       parameters: [{ $ref: '#/components/parameters/ContestId' }]
   /api/contests/{id}/problems:
     get:
