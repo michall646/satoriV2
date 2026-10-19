@@ -112,21 +112,49 @@ function applyMissDeduction(pts, misses, missDeduction) {
   return Math.max(0, pts - misses * v);
 }
 
+// Freeze/unfreeze (B3): one pure filter shared by ICPC, IOI and any board mode.
+// Freeze is active only when freezeAtIso parses, no replay view is requested, and
+// `nowMs` (default Date.now()) is before unfreezeAtIso when one is given.
+// Submits flagged `_unfrozenView` stay visible while frozen (replay rows).
+function isFrozen({ freezeAtIso, unfreezeAtIso, nowMs, unfrozenView, _unfrozenView } = {}) {
+  if (unfrozenView || _unfrozenView) return false;
+  if (!freezeAtIso) return false;
+  const from = new Date(freezeAtIso).getTime();
+  if (!Number.isFinite(from)) return false;
+  const until = unfreezeAtIso ? new Date(unfreezeAtIso).getTime() : NaN;
+  if (!Number.isFinite(until)) return true; // no unfreeze time -> frozen until replay
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  return now < until;
+}
+
+// Pure board filter: hides submits created after freezeAtIso while frozen.
+// opts: { freezeAtIso, unfreezeAtIso, nowMs, unfrozenView }.
+// Returns the input array unchanged when no freeze is active.
+function filterFrozenSubmits(submits, opts = {}) {
+  const list = Array.isArray(submits) ? submits : [];
+  if (!isFrozen(opts)) return list;
+  const from = new Date(opts.freezeAtIso).getTime();
+  return list.filter((s) => {
+    if (s && (s._unfrozenView || s.unfrozenView)) return true;
+    const t = new Date(s && s.createdAt).getTime();
+    if (!Number.isFinite(t)) return true; // unreadable timestamp never hides a row
+    return t <= from;
+  });
+}
+
 // ICPC: per contestant×problem: tries, solvedAtMin, solved.
 // Cell text: '-' | 'N' | 'N (H:MM)' — matches V1 UZI board.
 // deadlines: {problemId: iso} optional. policy: {enabled, lateMode} — hard late excluded, soft marked late.
-function rankICPC({ contestants, submits, problems, contestStart, freezeAtIso, deadlines, policy, penaltyMin, exemptStatuses, tiebreak, maxTries }) {
-  const frozen = freezeAtIso ? new Date(freezeAtIso).getTime() : null;
+function rankICPC({ contestants, submits, problems, contestStart, freezeAtIso, unfreezeAtIso, nowMs, unfrozenView, deadlines, policy, penaltyMin, exemptStatuses, tiebreak, maxTries }) {
+  const visible = filterFrozenSubmits(submits, { freezeAtIso, unfreezeAtIso, nowMs, unfrozenView });
   const byKey = new Map(); // `${cid}:${pid}` -> {tries, solvedTry, solvedMin}
-  const sorted = [...submits].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const sorted = [...visible].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   const hardLate = policy && policy.enabled && policy.lateMode === 'hard' && deadlines;
   const cost = Number(penaltyMin ?? PENALTY_PER_WRONG_MIN);
   const exempt = new Set(exemptStatuses || ['CE']);
 
   for (const s of sorted) {
     if (s.sampleOnly) continue;
-    const t = new Date(s.createdAt).getTime();
-    if (frozen && Number.isFinite(frozen) && t > frozen && !s._unfrozenView) continue;
     if (hardLate && deadlines[s.problemId] && isLateAt(deadlines[s.problemId], s.createdAt, policy.graceMin)) continue;
     const key = `${s.contestantId}:${s.problemId}`;
     if (!byKey.has(key)) byKey.set(key, { tries: 0, solvedTry: 0, solvedMin: 0, solved: false, late: false });
@@ -181,7 +209,8 @@ function rankICPC({ contestants, submits, problems, contestStart, freezeAtIso, d
 // IOI: points per problem+contestant summed.
 // scoreRule: 'best' (highest submit counts) | 'latest' (most recent counts) | 'solved-count' (100 if ever accepted).
 // Soft late penalized (+ floor), hard late excluded.
-function rankIOI({ contestants, submits, problems, deadlines, policy, scoreRule, floorPct, tiebreak, missDeduction, exemptStatuses }) {
+function rankIOI({ contestants, submits, problems, freezeAtIso, unfreezeAtIso, nowMs, unfrozenView, deadlines, policy, scoreRule, floorPct, tiebreak, missDeduction, exemptStatuses }) {
+  const visible = filterFrozenSubmits(submits, { freezeAtIso, unfreezeAtIso, nowMs, unfrozenView });
   const best = new Map(); // `${cid}:${pid}` -> points
   const bestLate = new Map();
   const misses = new Map(); // `${cid}:${pid}` -> wrong-try count
@@ -189,7 +218,7 @@ function rankIOI({ contestants, submits, problems, deadlines, policy, scoreRule,
   const lastSolve = new Map(); // `${cid}` -> epoch ms of latest score-setting submit
   const rule = scoreRule || 'best';
   const exempt = new Set(exemptStatuses || ['CE']);
-  const ordered = [...submits].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const ordered = [...visible].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   for (const s of ordered) {
     if (s.sampleOnly) continue;
     const raw = rule === 'solved-count'
@@ -279,4 +308,4 @@ function gradeLabs({ weights, scores, bestOfK, dropWorstN, latePenaltyPerDay, su
   return { total: Math.round(total * 10) / 10, grade, detail };
 }
 
-module.exports = { rankICPC, rankIOI, gradeLabs, isAccepted, PENALTY_PER_WRONG_MIN, fmtHMM, resolveEffectiveDeadline, defaultDeadlinePolicy, lateUnitsBetween, isLateAt };
+module.exports = { rankICPC, rankIOI, gradeLabs, isAccepted, PENALTY_PER_WRONG_MIN, fmtHMM, resolveEffectiveDeadline, defaultDeadlinePolicy, lateUnitsBetween, isLateAt, filterFrozenSubmits, isFrozen };
