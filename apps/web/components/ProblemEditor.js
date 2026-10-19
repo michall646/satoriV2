@@ -87,6 +87,14 @@ export function ProblemEditor({ problemId, contestId, full }) {
   const [openGroup, setOpenGroup] = useState(null);
   const [newCase, setNewCase] = useState({ name: '', input: '', expected: '' });
   const [editCase, setEditCase] = useState(null);
+  // C5 authoring: validator + reference solution drafts and their real results.
+  const [vDraft, setVDraft] = useState({ lang: 'JavaScript', code: '', file: '' });
+  const [vResults, setVResults] = useState(null);
+  const [vBusy, setVBusy] = useState(false);
+  const [rDraft, setRDraft] = useState({ lang: 'JavaScript', code: '' });
+  const [rResults, setRResults] = useState(null);
+  const [rBusy, setRBusy] = useState(false);
+  const [genBusy, setGenBusy] = useState(false);
   const fileRef = useRef(null);
 
   function applyTests(items) {
@@ -119,6 +127,8 @@ export function ProblemEditor({ problemId, contestId, full }) {
     api(`/api/problems/${problemId}`).then((d) => {
       setP(d);
       setSamples(d.samples || []);
+      setVDraft({ lang: d.validatorLang || langFromFile(d.validatorFile) || 'JavaScript', code: d.validatorCode || '', file: d.validatorFile || '' });
+      setRDraft({ lang: d.referenceLang || 'JavaScript', code: d.referenceCode || '' });
       const cid = contestId || d.contestId;
       if (cid) {
         api(`/api/contests/${cid}/problems?all=1`)
@@ -152,6 +162,14 @@ export function ProblemEditor({ problemId, contestId, full }) {
       limits: p.limits,
       visibility: p.visibility,
       aliasLetters: p.aliasLetters || {},
+      // C5: authoring programs are saved with the problem; running them below
+      // uses the drafts directly, so a teacher can test before saving.
+      validator: vDraft.code.trim() ? (p.validator || 'custom') : '',
+      validatorLang: vDraft.lang || null,
+      validatorCode: vDraft.code,
+      validatorFile: vDraft.file || null,
+      referenceLang: rDraft.lang || null,
+      referenceCode: rDraft.code,
     };
     setBusy(true);
     try {
@@ -179,6 +197,75 @@ export function ProblemEditor({ problemId, contestId, full }) {
       toast(t.pedit_quarantined, 'warn');
     } catch (e) { toast(`${t.pedit_failed} ${e.message}`, 'danger'); }
     finally { setBusy(false); }
+  }
+
+  async function runValidator() {
+    if (!vDraft.code.trim()) { toast(lbl('Walidator nie ma kodu.', 'The validator has no code.'), 'warn'); return; }
+    setVBusy(true);
+    setVResults(null);
+    try {
+      const r = await api(`/api/problems/${p.id}/validators/run`, {
+        method: 'POST',
+        body: JSON.stringify({
+          validator: 'custom',
+          validatorLang: vDraft.lang,
+          validatorCode: vDraft.code,
+          validatorFile: vDraft.file,
+        }),
+      });
+      setVResults(r);
+      if (r.compileLog) toast(lbl('Walidator nie skompilował się.', 'The validator did not compile.'), 'danger');
+      else if (r.ok) toast(lbl('Walidator: wszystkie wejścia poprawne.', 'Validator: every input is valid.'), 'success');
+      else toast(lbl('Walidator odrzucił część wejść.', 'Validator rejected some inputs.'), 'danger');
+    } catch (e) {
+      toast(`${t.pedit_failed} ${e.message}`, 'danger');
+    } finally {
+      setVBusy(false);
+    }
+  }
+
+  async function runReference() {
+    if (!rDraft.code.trim()) { toast(lbl('Rozwiązanie wzorcowe nie ma kodu.', 'The reference solution has no code.'), 'warn'); return; }
+    setRBusy(true);
+    setRResults(null);
+    try {
+      const r = await api(`/api/problems/${p.id}/reference/run`, {
+        method: 'POST',
+        body: JSON.stringify({ referenceLang: rDraft.lang, referenceCode: rDraft.code }),
+      });
+      setRResults(r);
+      if (r.compileLog && !r.cases?.length) toast(lbl('Rozwiązanie wzorcowe nie skompilowało się.', 'The reference solution did not compile.'), 'danger');
+      else if (r.ok) toast(lbl('Rozwiązanie wzorcowe przechodzi wszystkie przypadki.', 'The reference solution passes every case.'), 'success');
+      else toast(lbl('Rozwiązanie wzorcowe nie przechodzi wszystkich przypadków.', 'The reference solution does not pass every case.'), 'danger');
+    } catch (e) {
+      toast(`${t.pedit_failed} ${e.message}`, 'danger');
+    } finally {
+      setRBusy(false);
+    }
+  }
+
+  async function generateExpected() {
+    if (!rDraft.code.trim()) { toast(lbl('Najpierw dodaj rozwiązanie wzorcowe.', 'Add the reference solution first.'), 'warn'); return; }
+    const ok = window.confirm(lbl(
+      'Uzupełnić oczekiwane wyjścia tylko dla pustych przypadków? Istniejące oczekiwane wyjścia nie zostaną nadpisane.',
+      'Fill expected outputs only for empty cases? Existing expected outputs will not be overwritten.'
+    ));
+    if (!ok) return;
+    setGenBusy(true);
+    try {
+      const r = await api(`/api/problems/${p.id}/reference/generate`, {
+        method: 'POST',
+        body: JSON.stringify({ referenceLang: rDraft.lang, referenceCode: rDraft.code, overwrite: false }),
+      });
+      setRResults(r);
+      if (r.compileLog) toast(lbl('Rozwiązanie wzorcowe nie skompilowało się.', 'The reference solution did not compile.'), 'danger');
+      else toast(lbl(`Uzupełniono ${r.changed ?? 0} z ${r.considered ?? 0} pustych przypadków.`, `Filled ${r.changed ?? 0} of ${r.considered ?? 0} empty cases.`), r.ok ? 'success' : 'warn');
+      await loadTests();
+    } catch (e) {
+      toast(`${t.pedit_failed} ${e.message}`, 'danger');
+    } finally {
+      setGenBusy(false);
+    }
   }
 
   function setDraft(gid, patch) {
@@ -504,6 +591,125 @@ export function ProblemEditor({ problemId, contestId, full }) {
           </Select>
           <Button variant="secondary" onClick={addGroup}>{t.pedit_add_group}</Button>
         </div>
+      </Sec>
+
+      <Sec
+        title={lbl('Walidator testów', 'Test validator')}
+        hint={lbl(
+          'Program sprawdza wejście każdego przypadku. Kontrakt: ścieżka pliku wejściowego jako pierwszy argument (JS: process.argv[2], Python: sys.argv[1], C/C++: argv[1]); wejście trafia też na stdin. Kod 0 = poprawne, 1 = niepoprawne, inny = błąd walidatora. Limit 2 s. „Uruchom” używa kodu powyżej od razu; zapis utrwala go w zadaniu.',
+          'Checks every case input. Contract: input file path as the first argument (JS: process.argv[2], Python: sys.argv[1], C/C++: argv[1]); the input is also piped on stdin. Exit 0 = valid, 1 = invalid, any other exit = validator error. 2s timeout. "Run" uses the code above immediately; Save persists it on the problem.'
+        )}
+      >
+        <div className="grid md:grid-cols-2 gap-3">
+          <Select label={lbl('Język walidatora', 'Validator language')} value={vDraft.lang} onChange={(e) => setVDraft({ ...vDraft, lang: e.target.value })}>
+            {CHECKER_LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
+          </Select>
+          <Input label={lbl('Plik (opcjonalnie, wykrywa język)', 'File (optional, infers language)')} value={vDraft.file} onChange={(e) => setVDraft({ ...vDraft, file: e.target.value })} placeholder="validator.js" />
+        </div>
+        <Textarea label={lbl('Kod walidatora', 'Validator code')} rows={7} value={vDraft.code} onChange={(e) => setVDraft({ ...vDraft, code: e.target.value })} />
+        <div className="mt-2 flex gap-2 flex-wrap">
+          <Button variant="secondary" onClick={runValidator} disabled={vBusy}>{vBusy ? t.common_saving : lbl('Uruchom walidator', 'Run validator')}</Button>
+        </div>
+        {vResults ? (
+          <div className="mt-3">
+            {vResults.compileLog ? (
+              <pre className="type-mono text-xs p-2 rounded overflow-auto max-h-40" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>{vResults.compileLog}</pre>
+            ) : null}
+            <div className="overflow-auto" style={{ maxWidth: '100%' }}>
+              <table className="w-full text-xs mt-2 type-mono">
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>#</th>
+                    <th style={{ textAlign: 'left' }}>{lbl('Przypadek', 'Case')}</th>
+                    <th style={{ textAlign: 'left' }}>{lbl('Wynik', 'Result')}</th>
+                    <th style={{ textAlign: 'left' }}>{lbl('Komunikat', 'Message')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(vResults.cases || []).map((c) => (
+                    <tr key={c.caseId}>
+                      <td>{c.n}</td>
+                      <td>{c.caseName || `#${c.caseId}`}</td>
+                      <td><Badge tone={c.valid ? 'accent' : 'danger'}>{c.valid ? 'VALID' : 'INVALID'}</Badge></td>
+                      <td>{c.message || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!(vResults.cases || []).length ? <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{lbl('Brak przypadków do sprawdzenia.', 'No cases to validate.')}</p> : null}
+          </div>
+        ) : null}
+      </Sec>
+
+      <Sec
+        title={lbl('Rozwiązanie wzorcowe', 'Reference solution')}
+        hint={lbl(
+          'Wzorzec uruchamiany na każdym wejściu z checkerem problemu/grupy. „Generuj brakujące oczekiwane” wypełnia tylko puste expected — nigdy nie nadpisuje istniejących. Zapis utrwala kod w zadaniu.',
+          'Runs on every case input with the problem/group checker. "Generate missing expected" fills only empty expected values — it never overwrites existing ones. Save persists the code on the problem.'
+        )}
+      >
+        <div className="grid md:grid-cols-2 gap-3">
+          <Select label={lbl('Język wzorca', 'Reference language')} value={rDraft.lang} onChange={(e) => setRDraft({ ...rDraft, lang: e.target.value })}>
+            {CHECKER_LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
+          </Select>
+        </div>
+        <Textarea label={lbl('Kod rozwiązania wzorcowego', 'Reference solution code')} rows={7} value={rDraft.code} onChange={(e) => setRDraft({ ...rDraft, code: e.target.value })} />
+        <div className="mt-2 flex gap-2 flex-wrap">
+          <Button onClick={runReference} disabled={rBusy}>{rBusy ? t.common_saving : lbl('Uruchom wzorzec', 'Run reference')}</Button>
+          <Button variant="secondary" onClick={generateExpected} disabled={genBusy}>{genBusy ? t.common_saving : lbl('Generuj brakujące oczekiwane', 'Generate missing expected')}</Button>
+        </div>
+        {rResults ? (
+          <div className="mt-3">
+            {rResults.compileLog ? (
+              <pre className="type-mono text-xs p-2 rounded overflow-auto max-h-40" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>{rResults.compileLog}</pre>
+            ) : null}
+            {rResults.message ? <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{rResults.message}</p> : null}
+            {rResults.changed != null ? (
+              <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+                {lbl(`Uzupełniono ${rResults.changed} z ${rResults.considered ?? 0} pustych przypadków.`, `Filled ${rResults.changed} of ${rResults.considered ?? 0} empty cases.`)}
+              </p>
+            ) : null}
+            {(rResults.cases || []).length ? (
+              <div className="overflow-auto" style={{ maxWidth: '100%' }}>
+                <table className="w-full text-xs mt-2 type-mono">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>#</th>
+                      <th style={{ textAlign: 'left' }}>{lbl('Przypadek', 'Case')}</th>
+                      <th style={{ textAlign: 'left' }}>{lbl('Werdykt', 'Verdict')}</th>
+                      <th style={{ textAlign: 'left' }}>{lbl('Czas', 'Time')}</th>
+                      <th style={{ textAlign: 'left' }}>{lbl('Komunikat', 'Message')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(rResults.cases || []).map((c) => (
+                      <tr key={c.caseId}>
+                        <td>{c.n}</td>
+                        <td>{c.caseName || `#${c.caseId}`}</td>
+                        <td><Badge tone={c.verdict === 'OK' ? 'accent' : 'danger'}>{c.verdict}</Badge></td>
+                        <td>{c.timeMs != null ? `${c.timeMs} ms` : '—'}</td>
+                        <td>{c.message || (c.changed ? lbl('wypełniono', 'filled') : '—')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {rResults.firstDiff ? (
+              <div className="mt-3">
+                <strong className="text-xs block mb-1">
+                  {lbl('Pierwsza różnica', 'First diff')} · #{rResults.firstDiff.n} {rResults.firstDiff.caseName || ''}
+                </strong>
+                {rResults.firstDiff.verdict === 'WA' || rResults.firstDiff.verdict === 'CHECKER_ERROR' ? (
+                  <DiffView expected={rResults.firstDiff.expected || ''} got={rResults.firstDiff.got || ''} />
+                ) : (
+                  <pre className="type-mono text-xs p-2 rounded overflow-auto" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>{rResults.firstDiff.message || rResults.firstDiff.verdict}</pre>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </Sec>
 
       <Sec title={t.pedit_limits} hint={lbl('Jawne limity. Limity per język to bezwzględne milisekundy (D6).', 'Explicit limits. Per-language limits are absolute milliseconds (D6).')}>

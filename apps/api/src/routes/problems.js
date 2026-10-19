@@ -2,6 +2,8 @@
 'use strict';
 const { store } = require('../lib/store');
 const J = require('../../../../packages/judge/src/judge');
+const CHECKER = require('../../../../packages/judge/src/checker');
+const VALIDATOR = require('../../../../packages/judge/src/validator');
 const { send, readBody } = require('../lib/http');
 const { authUser, needAuth, forbid, audit, canManageProblem, canManageContest, canReadContest, reqLang, localizeRow, submitView, teamHasMember } = require('../lib/authz');
 const { enrichProblemWithDeadline } = require('../lib/contestAccess');
@@ -12,7 +14,7 @@ const { createSubmit } = require('../lib/createSubmit');
 
 // A13: test authoring accepts only these fields; problemId/groupId are checked against
 // the URL problem so an admin of contest A cannot write into contest B's tests.
-const GROUP_FIELDS = ['name', 'points', 'subtask', 'checker', 'checkerLang', 'checkerCode', 'checkerTolerance', 'checkerFile', 'timeMs', 'memoryMb', 'order'];
+const GROUP_FIELDS = ['name', 'points', 'subtask', 'checker', 'checkerLang', 'checkerCode', 'checkerTolerance', 'checkerFile', 'timeMs', 'memoryMb', 'order', 'validator', 'validatorLang', 'validatorCode', 'validatorFile'];
 const CASE_FIELDS = ['groupId', 'name', 'input', 'expected', 'checker', 'checkerLang', 'checkerCode', 'checkerTolerance', 'checkerFile', 'timeMs', 'memoryMb', 'points', 'subtask'];
 // C10: PATCH is whitelisted — a client cannot overwrite contestId, setterId or version.
 const PROBLEM_PATCH_FIELDS = [
@@ -20,7 +22,14 @@ const PROBLEM_PATCH_FIELDS = [
   'statementMd', 'statementMdEn', 'statementHtml', 'samples', 'limits',
   'visibility', 'aliasLetters', 'quarantineReason',
   'checker', 'checkerLang', 'checkerCode', 'checkerTolerance', 'checkerFile',
+  'validator', 'validatorLang', 'validatorCode', 'validatorFile',
+  'referenceCode', 'referenceLang',
 ];
+// C5: authoring programs are capped like checker programs, never stored unbounded.
+const PROGRAM_SOURCE_MAX = 512 * 1024;
+const DIFF_TEXT_MAX = 4000;
+const STRESS_MAX_ROUNDS = 50;
+const STRESS_MAX_INPUT_BYTES = 64 * 1024;
 // C12: these fields form a version snapshot when they change.
 const VERSION_FIELDS = ['name', 'code', 'tags', 'difficulty', 'statementMd', 'statementMdEn', 'samples', 'limits'];
 const TEST_NUMERIC_FIELDS = ['points', 'order', 'timeMs', 'memoryMb', 'subtask'];
@@ -78,6 +87,249 @@ function groupsWithCases(problemId) {
   const groups = store.query('testGroups', (g) => String(g.problemId) === String(problemId))
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || Number(a.id) - Number(b.id));
   return groups.map((g) => ({ ...g, cases: store.query('testCases', (c) => String(c.groupId) === String(g.id)) }));
+}
+
+// C5: every authoring run walks the same ordered test tree as the judge.
+function allCaseRows(pr) {
+  const groups = store.query('testGroups', (g) => String(g.problemId) === String(pr.id))
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || Number(a.id) - Number(b.id));
+  const rows = [];
+  for (const g of groups) {
+    const cases = store.query('testCases', (c) => String(c.groupId) === String(g.id))
+      .sort((a, b) => Number(a.id) - Number(b.id));
+    for (const tc of cases) rows.push({ tc, group: g });
+  }
+  return rows.map((row, i) => ({ ...row, n: i + 1 }));
+}
+
+function clipText(value, max = DIFF_TEXT_MAX) {
+  const s = String(value == null ? '' : value);
+  return s.length > max ? `${s.slice(0, max)}… (${s.length} chars)` : s;
+}
+
+// Case > group > problem, like checkers. Un-configured rows stay valid: a group
+// validator can cover one group and leave the rest alone.
+function validatorConfigFor(row, pr, override) {
+  const overrideFields = override ? pickFields(override, VALIDATOR.VALIDATOR_FIELDS) : {};
+  if (VALIDATOR.hasValidatorConfig(overrideFields)) {
+    return VALIDATOR.resolveValidator(overrideFields, {}, pr);
+  }
+  return VALIDATOR.resolveValidator(row.tc, row.group, pr);
+}
+
+// Compile each distinct validator once, then run it over every case input.
+// A configured validator with no runnable program fails closed (invalid).
+function runValidatorOverCases(pr, override) {
+  const rows = allCaseRows(pr);
+  const compiled = new Map();
+  const cases = [];
+  let compileLog = '';
+  for (const row of rows) {
+    const cfg = validatorConfigFor(row, pr, override);
+    if (!cfg.configured) {
+      cases.push({ n: row.n, caseId: row.tc.id, caseName: row.tc.name || null, valid: true, message: '' });
+      continue;
+    }
+    const key = `${cfg.lang || ''}\u0000${cfg.file || ''}\u0000${cfg.code}`;
+    let desc = compiled.get(key);
+    if (!desc) {
+      desc = VALIDATOR.prepareValidator(cfg.code, cfg.lang || cfg.file, { memoryMb: pr.limits && pr.limits.memoryMb });
+      compiled.set(key, desc);
+      if (!desc.ok && !compileLog) compileLog = clipText(desc.log, 2000);
+    }
+    const r = VALIDATOR.runValidator({ program: desc, input: row.tc.input });
+    cases.push({ n: row.n, caseId: row.tc.id, caseName: row.tc.name || null, valid: r.valid, message: r.message || '' });
+  }
+  for (const desc of compiled.values()) VALIDATOR.cleanupProgram(desc);
+  return { ok: cases.every((x) => x.valid), cases, compileLog };
+}
+
+function referenceConfigFor(pr, override) {
+  const has = (f) => override && Object.prototype.hasOwnProperty.call(override, f);
+  const rawCode = has('referenceCode') ? override.referenceCode : (pr.referenceCode || '');
+  const langRaw = has('referenceLang') ? override.referenceLang : pr.referenceLang;
+  return { code: rawCode == null ? '' : String(rawCode), lang: CHECKER.normalizeLang(langRaw), langRaw: langRaw || null };
+}
+
+function caseLimitMs(pr, tc, lang) {
+  const limits = (pr && pr.limits) || {};
+  const perLang = (limits.perLang && limits.perLang[lang]) || limits.timeMs || 1000;
+  return Number(tc && tc.timeMs) || Number(perLang) || 1000;
+}
+
+// One run of a compiled program with one input. Never throws.
+function runProgramCase(desc, pr, tc, input) {
+  const limit = caseLimitMs(pr, tc || {}, desc.lang);
+  const run = J.runProcess(desc.cmd, desc.args, { input: String(input ?? ''), timeMs: limit, cwd: desc.dir });
+  if (run.timedOut) return { ok: false, verdict: 'TLE', message: `exceeded ${limit}ms`, stdout: run.stdout || '', wallMs: run.wallMs };
+  if (run.outputCapped) return { ok: false, verdict: 'RE', message: 'output limit exceeded (1 MB cap)', stdout: '', wallMs: run.wallMs };
+  if (run.exitCode !== 0) {
+    return { ok: false, verdict: 'RE', message: clipText(String(run.stderr || run.spawnError || `exit code ${run.exitCode}`), 500), stdout: run.stdout || '', wallMs: run.wallMs };
+  }
+  return { ok: true, verdict: 'OK', message: '', stdout: run.stdout || '', wallMs: run.wallMs };
+}
+
+// Reference verdicts use the same checker resolution as the judge (D7).
+function evaluateReferenceCase(pr, tc, group, got, checkerCache) {
+  const cfg = CHECKER.resolveChecker(tc, group, pr);
+  if (cfg.kind === 'custom') {
+    if (!cfg.code.trim()) return { ok: false, verdict: 'CHECKER_ERROR', message: 'custom checker has no program.' };
+    const key = `${cfg.lang || ''}\u0000${cfg.code}`;
+    if (!checkerCache.has(key)) {
+      checkerCache.set(key, CHECKER.prepareChecker(cfg.code, cfg.lang, { memoryMb: pr.limits && pr.limits.memoryMb }));
+    }
+    const desc = checkerCache.get(key);
+    if (!desc.ok) return { ok: false, verdict: 'CHECKER_ERROR', message: `checker compile failed: ${CHECKER.firstLine(desc.log) || 'unknown error'}` };
+    const r = CHECKER.runChecker(desc, { input: tc.input, expected: tc.expected, output: got });
+    if (r.accepted) return { ok: true, verdict: 'OK', message: '' };
+    return { ok: false, verdict: r.status === 'CHECKER_ERROR' ? 'CHECKER_ERROR' : 'WA', message: r.message || 'wrong answer' };
+  }
+  const ok = cfg.kind === 'float'
+    ? CHECKER.acceptFloat(tc.expected, got, cfg.tolerance)
+    : CHECKER.acceptToken(tc.expected, got);
+  return { ok, verdict: ok ? 'OK' : 'WA', message: '' };
+}
+
+function runReferenceOverCases(pr, cfg) {
+  const desc = VALIDATOR.prepareProgram(cfg.code, cfg.lang, { label: 'reference solution', memoryMb: pr.limits && pr.limits.memoryMb });
+  if (!desc.ok) {
+    return { ok: false, cases: [], firstDiff: null, compileLog: clipText(desc.log, 4000), message: 'Reference solution failed to compile.' };
+  }
+  const rows = allCaseRows(pr);
+  const checkerCache = new Map();
+  const cases = [];
+  try {
+    for (const row of rows) {
+      const run = runProgramCase(desc, pr, row.tc, row.tc.input);
+      let verdict = run.verdict;
+      let message = run.message;
+      let got = run.stdout;
+      if (run.ok) {
+        got = run.stdout;
+        const ev = evaluateReferenceCase(pr, row.tc, row.group, got, checkerCache);
+        verdict = ev.verdict;
+        message = ev.message;
+      }
+      const bad = verdict !== 'OK';
+      if (bad && !message) {
+        message = `expected ${clipText(JSON.stringify(String(row.tc.expected ?? '')), 200)} got ${clipText(JSON.stringify(got), 200)}`;
+      }
+      cases.push({
+        n: row.n,
+        caseId: row.tc.id,
+        caseName: row.tc.name || null,
+        verdict,
+        timeMs: Math.max(1, Number(run.wallMs) || 1),
+        message: bad ? message : '',
+        ...(bad ? { expected: clipText(row.tc.expected), got: clipText(got) } : {}),
+      });
+    }
+  } finally {
+    VALIDATOR.cleanupProgram(desc);
+    for (const d of checkerCache.values()) VALIDATOR.cleanupProgram(d);
+  }
+  const firstDiff = cases.find((x) => x.verdict !== 'OK') || null;
+  return {
+    ok: cases.length > 0 && !firstDiff,
+    cases,
+    firstDiff: firstDiff
+      ? { n: firstDiff.n, caseId: firstDiff.caseId, caseName: firstDiff.caseName, verdict: firstDiff.verdict, expected: firstDiff.expected, got: firstDiff.got, message: firstDiff.message }
+      : null,
+    compileLog: clipText(desc.log, 4000),
+    ...(cases.length ? {} : { message: 'This problem has no test cases.' }),
+  };
+}
+
+function generateMissingExpected(pr, cfg) {
+  const desc = VALIDATOR.prepareProgram(cfg.code, cfg.lang, { label: 'reference solution', memoryMb: pr.limits && pr.limits.memoryMb });
+  if (!desc.ok) {
+    return { ok: false, changed: 0, considered: 0, cases: [], compileLog: clipText(desc.log, 4000), message: 'Reference solution failed to compile.' };
+  }
+  const targets = allCaseRows(pr).filter((row) => String(row.tc.expected ?? '').trim() === '');
+  const cases = [];
+  let changed = 0;
+  try {
+    for (const row of targets) {
+      const run = runProgramCase(desc, pr, row.tc, row.tc.input);
+      if (!run.ok) {
+        cases.push({ n: row.n, caseId: row.tc.id, changed: false, verdict: run.verdict, message: run.message });
+        continue;
+      }
+      store.update('testCases', row.tc.id, { expected: run.stdout });
+      changed += 1;
+      cases.push({ n: row.n, caseId: row.tc.id, changed: true, verdict: 'OK', message: '' });
+    }
+  } finally {
+    VALIDATOR.cleanupProgram(desc);
+  }
+  return { ok: cases.every((x) => x.changed), changed, considered: targets.length, cases, compileLog: '' };
+}
+
+// C5 optional stress: reference vs brute on generated small inputs.
+function runStress(pr, body) {
+  const refCfg = referenceConfigFor(pr, body);
+  if (!refCfg.code.trim()) {
+    return { error: { code: 'NO_REFERENCE', message: 'Reference solution is not configured.', hint: 'Set referenceLang and referenceCode first.' } };
+  }
+  if (!String(body.bruteCode || '').trim()) {
+    return { error: { code: 'NO_BRUTE', message: 'bruteCode is required.', hint: 'Provide a brute-force program to compare against the reference.' } };
+  }
+  if (!String(body.generatorCode || '').trim()) {
+    return { error: { code: 'NO_GENERATOR', message: 'generatorCode is required.', hint: 'Provide a program that prints one random input to stdout.' } };
+  }
+  const rounds = body.rounds == null || body.rounds === '' ? 10 : Number(body.rounds);
+  if (!Number.isInteger(rounds) || rounds < 1) {
+    return { error: { code: 'ROUNDS', message: 'rounds must be a positive integer.', hint: '' } };
+  }
+  if (rounds > STRESS_MAX_ROUNDS) {
+    return { error: { code: 'TOO_LARGE', message: `Stress rounds must be at most ${STRESS_MAX_ROUNDS}.`, hint: 'Reduce rounds and run again.' } };
+  }
+  const bruteLang = body.bruteLang ? CHECKER.normalizeLang(body.bruteLang) : refCfg.lang;
+  if (!bruteLang) {
+    return { error: { code: 'BRUTE_LANG', message: 'Unknown bruteLang.', hint: 'Use C, C++17, Python, JavaScript, Java or Rust.' } };
+  }
+  const generatorLang = body.generatorLang ? CHECKER.normalizeLang(body.generatorLang) : bruteLang;
+  if (!generatorLang) {
+    return { error: { code: 'GENERATOR_LANG', message: 'Unknown generatorLang.', hint: 'Use C, C++17, Python, JavaScript, Java or Rust.' } };
+  }
+  const refDesc = VALIDATOR.prepareProgram(refCfg.code, refCfg.lang, { label: 'reference solution', memoryMb: pr.limits && pr.limits.memoryMb });
+  const bruteDesc = VALIDATOR.prepareProgram(String(body.bruteCode), bruteLang, { label: 'brute solution', memoryMb: pr.limits && pr.limits.memoryMb });
+  const genDesc = VALIDATOR.prepareProgram(String(body.generatorCode), generatorLang, { label: 'generator', memoryMb: pr.limits && pr.limits.memoryMb });
+  const descs = [refDesc, bruteDesc, genDesc];
+  const compileLog = descs.filter((d) => !d.ok).map((d) => d.log).filter(Boolean).join('\n');
+  if (compileLog) {
+    for (const d of descs) VALIDATOR.cleanupProgram(d);
+    return { ok: false, rounds: 0, mismatches: [], errors: [], compileLog: clipText(compileLog, 4000), message: 'Stress programs failed to compile.' };
+  }
+  const mismatches = [];
+  const errors = [];
+  try {
+    for (let i = 1; i <= rounds; i++) {
+      const gen = runProgramCase(genDesc, pr, {}, '');
+      if (!gen.ok) { errors.push({ n: i, message: `generator ${gen.verdict}: ${gen.message}` }); continue; }
+      if (Buffer.byteLength(gen.stdout, 'utf8') > STRESS_MAX_INPUT_BYTES) {
+        errors.push({ n: i, message: 'generated input exceeds 64KB; round skipped' });
+        continue;
+      }
+      const input = gen.stdout;
+      const ref = runProgramCase(refDesc, pr, {}, input);
+      if (!ref.ok) {
+        errors.push({ n: i, input: clipText(input, 1000), message: `reference ${ref.verdict}: ${ref.message}` });
+        continue;
+      }
+      const brute = runProgramCase(bruteDesc, pr, {}, input);
+      if (!brute.ok) {
+        mismatches.push({ n: i, input: clipText(input, 1000), reference: clipText(ref.stdout, 1000), brute: '', message: `brute ${brute.verdict}: ${brute.message}` });
+        continue;
+      }
+      if (!CHECKER.acceptToken(ref.stdout, brute.stdout)) {
+        mismatches.push({ n: i, input: clipText(input, 1000), reference: clipText(ref.stdout, 1000), brute: clipText(brute.stdout, 1000), message: 'reference and brute disagree' });
+      }
+    }
+  } finally {
+    for (const d of descs) VALIDATOR.cleanupProgram(d);
+  }
+  return { ok: mismatches.length === 0 && errors.length === 0, rounds, mismatches, errors };
 }
 
 // C7: createSubmit() reads the body itself, so when the problem has no tests we
@@ -225,6 +477,51 @@ async function handle(req, res, url, p, m) {
     return send(res, 200, { items });
   }
 
+  // C5: validator / reference / stress authoring routes (admins only).
+  mt = p.match(/^\/api\/problems\/(\d+)\/(validators\/run|reference\/(?:run|generate)|stress)$/);
+  if (mt && m === 'POST') {
+    const ctx = managedProblem(req, res, mt[1]);
+    if (!ctx) return true;
+    const { pr, me } = ctx;
+    const b = await readBody(req);
+
+    if (mt[2] === 'validators/run') {
+      const out = runValidatorOverCases(pr, b);
+      audit(me.id, 'problem.validator.run', `problem:${pr.id}`, { cases: out.cases.length, ok: out.ok });
+      return send(res, 200, out);
+    }
+
+    const refCfg = referenceConfigFor(pr, b);
+    if (!refCfg.code.trim()) {
+      return send(res, 422, { error: { code: 'NO_REFERENCE', message: 'Reference solution is not configured.', hint: 'Set referenceLang and referenceCode, then save the problem.' } });
+    }
+    if (!refCfg.lang) {
+      return send(res, 422, { error: { code: 'REFERENCE_LANG', message: 'Reference solution language is unknown.', hint: 'Use C, C++17, Python, JavaScript, Java or Rust.' } });
+    }
+
+    if (mt[2] === 'reference/run') {
+      const out = runReferenceOverCases(pr, refCfg);
+      audit(me.id, 'problem.reference.run', `problem:${pr.id}`, { cases: out.cases.length, ok: out.ok });
+      return send(res, 200, out);
+    }
+
+    if (mt[2] === 'reference/generate') {
+      // Deliberate guard: generation fills empty expected outputs only. Replacing
+      // a teacher-authored expected output is an explicit case edit, never a click.
+      if (b.overwrite === true) {
+        return send(res, 422, { error: { code: 'OVERWRITE', message: 'Generate never overwrites existing expected outputs.', hint: 'It only fills empty expected values. Edit a case explicitly to replace its output.' } });
+      }
+      const out = generateMissingExpected(pr, refCfg);
+      audit(me.id, 'problem.reference.generate', `problem:${pr.id}`, { changed: out.changed, considered: out.considered });
+      return send(res, 200, out);
+    }
+
+    const out = runStress(pr, b);
+    if (out.error) return send(res, 422, { error: out.error });
+    audit(me.id, 'problem.stress.run', `problem:${pr.id}`, { rounds: out.rounds, mismatches: out.mismatches.length });
+    return send(res, 200, out);
+  }
+
   // test group delete
   mt = p.match(/^\/api\/problems\/(\d+)\/tests\/([^/]+)$/);
   if (mt && m === 'DELETE') {
@@ -285,6 +582,11 @@ async function handle(req, res, url, p, m) {
       }
       // Editorial is a reward for solving, not a public statement section.
       if (out.editorialMd && !canManageProblem(me, pr) && !(out._best === 'OK' || out._best === 'ANS')) delete out.editorialMd;
+      // Validators and the reference solution are authoring secrets: students must
+      // never receive the model solution through a normal problem read.
+      if (!canManageProblem(me, pr)) {
+        for (const f of ['validator', 'validatorLang', 'validatorCode', 'validatorFile', 'referenceCode', 'referenceLang']) delete out[f];
+      }
       return send(res, 200, out);
     }
     if (!sub && m === 'PATCH') {
@@ -310,6 +612,23 @@ async function handle(req, res, url, p, m) {
       if (patch.aliasLetters !== undefined && (patch.aliasLetters === null || typeof patch.aliasLetters !== 'object' || Array.isArray(patch.aliasLetters))) {
         return send(res, 422, { error: { code: 'ALIASES', message: 'aliasLetters must be an object.', hint: '' } });
       }
+      // C5: validator/reference programs are text, languages are canonical, code capped.
+      for (const f of ['validator', 'validatorLang', 'validatorCode', 'validatorFile', 'referenceLang', 'referenceCode']) {
+        if (patch[f] !== undefined && patch[f] !== null && typeof patch[f] !== 'string') {
+          return send(res, 422, { error: { code: 'PROGRAM_FIELD', message: `${f} must be a string.`, hint: 'Send program source as a string.' } });
+        }
+      }
+      for (const f of ['validatorCode', 'referenceCode']) {
+        if (patch[f] !== undefined && String(patch[f] || '').length > PROGRAM_SOURCE_MAX) {
+          return send(res, 422, { error: { code: 'PROGRAM_TOO_LARGE', message: `${f} exceeds 512KB.`, hint: 'Keep authoring programs under 512KB.' } });
+        }
+      }
+      if (patch.validatorLang != null && patch.validatorLang !== '' && !CHECKER.normalizeLang(patch.validatorLang)) {
+        return send(res, 422, { error: { code: 'VALIDATOR_LANG', message: 'Unknown validator language.', hint: 'Use C, C++17, Python, JavaScript, Java or Rust.' } });
+      }
+      if (patch.referenceLang != null && patch.referenceLang !== '' && !CHECKER.normalizeLang(patch.referenceLang)) {
+        return send(res, 422, { error: { code: 'REFERENCE_LANG', message: 'Unknown reference solution language.', hint: 'Use C, C++17, Python, JavaScript, Java or Rust.' } });
+      }
       // C10: a set must belong to this problem's contest — no cross-contest set ids.
       if (patch.setId !== undefined) {
         if (patch.setId == null || patch.setId === '') {
@@ -325,6 +644,27 @@ async function handle(req, res, url, p, m) {
       // C7: publishing requires at least one test case (demo fixtures opt out).
       if (patch.visibility === 'visible' && !hasTests(pr) && !testGateExempt(pr)) {
         return noTests(res, 422, 'Cannot publish a problem without test cases.');
+      }
+      // C5: a configured validator must accept every input before the problem is
+      // visible. Compile/run errors also fail closed and name the bad case.
+      if (patch.visibility === 'visible' && hasTests(pr)) {
+        const next = { ...pr, ...patch };
+        const check = runValidatorOverCases(next);
+        const bad = check.cases.find((x) => !x.valid);
+        if (bad) {
+          const label = bad.caseName ? `${bad.n} (${bad.caseName})` : String(bad.n);
+          return send(res, 422, {
+            error: {
+              code: 'INVALID_TESTS',
+              message: `Test case ${label} is invalid${bad.message ? `: ${bad.message}` : '.'}`,
+              hint: 'Fix the input or the validator, then run the validator from the problem editor.',
+              field: 'validator',
+              caseId: bad.caseId,
+              caseN: bad.n,
+              ...(check.compileLog ? { validatorLog: check.compileLog } : {}),
+            },
+          });
+        }
       }
       const changed = VERSION_FIELDS.filter((f) => patch[f] !== undefined && JSON.stringify(patch[f]) !== JSON.stringify(pr[f]));
       if (changed.length) {
@@ -451,6 +791,12 @@ async function handle(req, res, url, p, m) {
         checkerCode: pr.checkerCode,
         checkerTolerance: pr.checkerTolerance,
         checkerFile: pr.checkerFile,
+        validator: pr.validator,
+        validatorLang: pr.validatorLang,
+        validatorCode: pr.validatorCode,
+        validatorFile: pr.validatorFile,
+        referenceCode: pr.referenceCode,
+        referenceLang: pr.referenceLang,
         pdfBadge: pr.pdfBadge || 'HTML',
         version: 1,
         aliasLetters: {},
