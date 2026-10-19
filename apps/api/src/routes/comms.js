@@ -3,6 +3,7 @@
 // F2 (Batch 2): scheduled announcements, in-app fan-out, RSS 2.0 feed, read state.
 'use strict';
 const { store } = require('../lib/store');
+const { notifyUser } = require('../lib/notifications');
 const { send, sendText, readBody, rateLimited } = require('../lib/http');
 const { authUser, needAuth, forbid, audit, contestRole, canManageContest } = require('../lib/authz');
 
@@ -60,14 +61,7 @@ function fanoutAnnouncement(contest, news, authorId) {
   let notified = 0;
   for (const rawId of announcementRecipients(contest, authorId)) {
     const uid = Number(rawId);
-    store.insert('notifications', {
-      userId: Number.isFinite(uid) ? uid : rawId,
-      type: 'announcement',
-      payload: { contestId: contest.id, newsId: news.id, title: String(news.title || '') },
-      read: false,
-      at,
-    });
-    notified += 1;
+    if (notifyUser(Number.isFinite(uid) ? uid : rawId, 'announcement', { contestId: contest.id, newsId: news.id, title: String(news.title || '') })) notified += 1;
   }
   return notified;
 }
@@ -252,10 +246,7 @@ async function handle(req, res, url, p, m) {
       answer: answer.slice(0, 8000), answeredBy: me.id, answeredAt: new Date().toISOString(),
     });
     if (String(row.authorId) !== String(me.id)) {
-      store.insert('notifications', {
-        userId: row.authorId, type: 'clarification.answered',
-        payload: { contestId: c.id, clarificationId: row.id }, read: false, at: new Date().toISOString(),
-      });
+      notifyUser(row.authorId, 'clarification.answered', { contestId: c.id, clarificationId: row.id });
     }
     audit(me.id, 'clarification.answer', `contest:${c.id}`, { clarificationId: row.id });
     return send(res, 200, out);

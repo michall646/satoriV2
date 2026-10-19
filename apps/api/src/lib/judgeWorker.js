@@ -4,6 +4,7 @@ const { store } = require('./store');
 const J = require('../../../../packages/judge/src/judge');
 const CHECKER = require('../../../../packages/judge/src/checker');
 const { fireWebhooks } = require('../routes/webhooks');
+const { notifyUser } = require('./notifications');
 
 // Fixture triggers are for demo/tests only. Production code must not be able to
 // force a verdict by putting a magic string in a comment.
@@ -256,7 +257,7 @@ async function judgeOne(s) {
 }
 function notify(s, verdict) {
   if (s.sampleOnly) return;
-  store.insert('notifications', { userId: s.userId, type: 'submit.judged', payload: { submitId: s.id, verdict }, read: false, at: new Date().toISOString() });
+  notifyUser(s.userId, 'submit.judged', { submitId: s.id, verdict });
 }
 
 module.exports = { processQueue, sleep, prepareExec, judgeOne, notify };

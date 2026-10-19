@@ -629,6 +629,92 @@
         ]
       }
     },
+    "/api/contests/{id}/grade/overrides": {
+      "post": {
+        "tags": [
+          "grades"
+        ],
+        "summary": "Set a per-student/problem or final-grade override (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          }
+        ]
+      }
+    },
+    "/api/contests/{id}/grade/overrides/{oid}": {
+      "delete": {
+        "tags": [
+          "grades"
+        ],
+        "summary": "Remove a grade override (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          },
+          {
+            "name": "oid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/contests/{id}/grade/release": {
+      "post": {
+        "tags": [
+          "grades"
+        ],
+        "summary": "Release or hold grades ({released} or {at}) (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          }
+        ]
+      }
+    },
+    "/api/contests/{id}/grade/rejudge": {
+      "post": {
+        "tags": [
+          "grades"
+        ],
+        "summary": "Requeue submits matching a filter (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          }
+        ]
+      }
+    },
+    "/api/contests/{id}/grade/codes.zip": {
+      "get": {
+        "tags": [
+          "grades"
+        ],
+        "summary": "ZIP of every member's best/latest code per problem (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          }
+        ]
+      }
+    },
+    "/api/contests/{id}/grade/extend-selected": {
+      "post": {
+        "tags": [
+          "grades"
+        ],
+        "summary": "Extend deadlines for selected students (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          }
+        ]
+      }
+    },
     "/api/contests/{id}/deadlines/bulk-extend": {
       "post": {
         "tags": [
@@ -647,7 +733,7 @@
         "tags": [
           "contests"
         ],
-        "summary": "Audit rows targeting this contest (requires login; not manager-gated yet)",
+        "summary": "Audit rows targeting this contest (admins; actor/action/target filters)",
         "parameters": [
           {
             "$ref": "#/components/parameters/ContestId"
@@ -1121,6 +1207,119 @@
             "schema": {
               "type": "string"
             }
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/tests/groups/{gid}": {
+      "patch": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Update group name/points/checker/order (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/tests/cases/{cid}": {
+      "patch": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Update one test case (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Delete one test case (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/tests/export": {
+      "get": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Export groups and cases as a JSON bundle (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/tests/import": {
+      "post": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Import a JSON group/case bundle (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/limitHistory": {
+      "get": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Limit change history (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/versions": {
+      "get": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Problem version snapshots (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
           }
         ]
       }

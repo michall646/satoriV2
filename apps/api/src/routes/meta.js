@@ -5,6 +5,7 @@ const path = require('node:path');
 const { store } = require('../lib/store');
 const J = require('../../../../packages/judge/src/judge');
 const { send, sendText } = require('../lib/http');
+const { authUser, canReadContest, canManageContest } = require('../lib/authz');
 
 function openapi() {
   return {
@@ -63,20 +64,33 @@ async function handle(req, res, url, p, m) {
   if (p === '/api/search' && m === 'GET') {
     const q = (u.searchParams.get('q') || '').toLowerCase();
     if (!q) return send(res, 200, { contests: [], problems: [], users: [], announcements: [] });
-    // E8/F2: announcements match title + markdown body; scheduled-future posts
-    // are not searchable until they are actually visible.
+    const me = authUser(req);
     const now = Date.now();
+    const contests = store.all('contests').filter((c) => {
+      if (!canReadContest(c, me)) return false;
+      if (c.lifecycle === 'draft' && !canManageContest(me, c)) return false;
+      return `${c.name || ''} ${c.description || ''}`.toLowerCase().includes(q);
+    }).slice(0, 20);
+    const announcementContest = new Map(contests.map((c) => [String(c.id), c]));
     const announcements = store.all('news')
       .filter((n) => {
         const at = Date.parse(n.scheduledAt || '');
         if (Number.isFinite(at) && at > now) return false;
+        const c = n.contestId != null ? (announcementContest.get(String(n.contestId)) || store.get('contests', n.contestId)) : null;
+        if (c && !canReadContest(c, me)) return false;
         return `${n.title || ''} ${n.bodyMd || n.bodyHtml || ''}`.toLowerCase().includes(q);
       })
       .map((n) => ({ id: n.id, contestId: n.contestId, title: n.title || '' }))
       .slice(0, 20);
+    const problems = store.all('problems').filter((x) => {
+      const c = x.contestId != null ? store.get('contests', x.contestId) : null;
+      if ((x.visibility || 'visible') !== 'visible' && !canManageContest(me, c)) return false;
+      if (c && !canReadContest(c, me)) return false;
+      return String(x.name || '').toLowerCase().includes(q) || String(x.code || '').toLowerCase().includes(q);
+    }).slice(0, 20);
     return send(res, 200, {
-      contests: store.all('contests').filter((c) => (c.name + c.description).toLowerCase().includes(q)).slice(0, 20),
-      problems: store.all('problems').filter((x) => x.name.toLowerCase().includes(q)).slice(0, 20),
+      contests,
+      problems,
       users: store.all('users').filter((x) => x.login.includes(q)).map((x) => ({ id: x.id, login: x.login })).slice(0, 20),
       announcements,
     });

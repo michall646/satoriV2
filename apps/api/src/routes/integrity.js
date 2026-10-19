@@ -1,6 +1,7 @@
 // Satori V2 — integrity, appeals, and exam controls.
 'use strict';
 const { store } = require('../lib/store');
+const { notifyUser } = require('../lib/notifications');
 const { send, readBody, clientIp, violationRate, throttleResponse } = require('../lib/http');
 const { needAuth, forbid, canManageContest, contestRole, audit } = require('../lib/authz');
 const { normalizeExam } = require('../lib/contestAccess');
@@ -35,7 +36,7 @@ function notify(contest, type, payload, exceptUserId) {
   const at = new Date().toISOString();
   for (const id of adminUserIds(contest)) {
     if (exceptUserId != null && String(id) === String(exceptUserId)) continue;
-    store.insert('notifications', { userId: id, type, payload, read: false, at });
+    notifyUser(id, type, payload);
   }
 }
 

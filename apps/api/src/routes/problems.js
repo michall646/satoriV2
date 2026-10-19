@@ -283,6 +283,8 @@ async function handle(req, res, url, p, m) {
         out._bestScore = score;
         out._tries = subs.length;
       }
+      // Editorial is a reward for solving, not a public statement section.
+      if (out.editorialMd && !canManageProblem(me, pr) && !(out._best === 'OK' || out._best === 'ANS')) delete out.editorialMd;
       return send(res, 200, out);
     }
     if (!sub && m === 'PATCH') {
