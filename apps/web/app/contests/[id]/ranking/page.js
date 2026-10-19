@@ -13,6 +13,7 @@ export default function RankingPage({ params }) {
   const [rows, setRows] = useState(null);
   const [freeze, setFreeze] = useState(null);
   const [unfreezeAt, setUnfreezeAt] = useState(null);
+  const [frozen, setFrozen] = useState(false);
   const [sort, setSort] = useState({ key: 'rank', dir: 'asc' });
   const [openTeam, setOpenTeam] = useState(null);
   const [ticker, setTicker] = useState([]);
@@ -22,8 +23,9 @@ export default function RankingPage({ params }) {
   const [meStanding, setMeStanding] = useState(null);
   const [penaltyMin, setPenaltyMin] = useState(20);
 
-  async function load() {
-    const cacheKey = `satori-ranking-${params.id}`;
+  async function load(unfrozenView = false) {
+    const query = unfrozenView ? '?unfrozen=1' : '';
+    const cacheKey = `satori-ranking-${params.id}${unfrozenView ? '-unfrozen' : ''}`;
     try {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
@@ -33,11 +35,13 @@ export default function RankingPage({ params }) {
           setProblems(c.problems || []);
           setMode(c.mode || null);
           setFreeze(c.freezeAt || null);
+          setUnfreezeAt(c.unfreezeAt || null);
+          setFrozen(Boolean(c.frozen));
         }
       }
     } catch { /* noop */ }
     try {
-      const d = await api(`/api/contests/${params.id}/ranking`);
+      const d = await api(`/api/contests/${params.id}/ranking${query}`);
       const rowsData = d.rows || [];
       const probs = d.problems || [];
       setRows(rowsData);
@@ -47,25 +51,32 @@ export default function RankingPage({ params }) {
       setFreeze(d.freezeAt || null);
       setDeadlinePolicy(d.deadlinePolicy || null);
       setUnfreezeAt(d.unfreezeAt || null);
+      // B3/B9: the server owns freeze state; keep a timestamp fallback for old APIs.
+      const freezeNow = typeof d.frozen === 'boolean'
+        ? d.frozen
+        : Boolean(d.freezeAt && (!d.unfreezeAt || new Date(d.unfreezeAt).getTime() > Date.now()));
+      setFrozen(freezeNow);
       setMeStanding(d.me || null);
-      try { sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), rows: rowsData, problems: probs, mode: d.mode, freezeAt: d.freezeAt || null })); } catch { /* noop */ }
+      try { sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), rows: rowsData, problems: probs, mode: d.mode, freezeAt: d.freezeAt || null, unfreezeAt: d.unfreezeAt || null, frozen: freezeNow })); } catch { /* noop */ }
     } catch { setRows([]); }
   }
 
   useEffect(() => {
-    load();
-    const es = new EventSource(`${API}/api/contests/${params.id}/rankings/live`);
+    const unfrozenView = new URLSearchParams(window.location.search).get('unfrozen') === '1';
+    load(unfrozenView);
+    const query = unfrozenView ? '?unfrozen=1' : '';
+    const es = new EventSource(`${API}/api/contests/${params.id}/rankings/live${query}`);
     es.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
         if (d.clarification) setTicker((prev) => [d.clarification, ...prev].slice(0, 5));
-        else load();
-      } catch { load(); }
+        else load(unfrozenView);
+      } catch { load(unfrozenView); }
     };
     api(`/api/contests/${params.id}/clarifications`).then((d) => setTicker((d.items || []).slice(0, 5))).catch(() => {});
     api(`/api/contests/${params.id}`).then((c) => {
       setBoardMode(c.settings?.board?.mode || 'everyone');
-      setPenaltyMin(c.penalty ?? c.settings?.scoring?.wrongTryMin ?? 20);
+      setPenaltyMin(c.settings?.penaltyMin ?? c.settings?.scoring?.wrongTryMin ?? c.penalty ?? 20);
     }).catch(() => {});
     api('/api/me').then((m) => setMeLogin(m.login || null)).catch(() => {});
     return () => es.close();
@@ -115,7 +126,6 @@ export default function RankingPage({ params }) {
   }
 
   if (rows === null || mode === null) return <Skeleton lines={8} />;
-  const frozen = freeze && new Date(freeze).getTime() < Date.now() && (!unfreezeAt || new Date(unfreezeAt).getTime() > Date.now());
   const isICPC = mode === 'ICPC';
   const scoreCol = isICPC
     ? { key: 'solved', label: t.cockpit_solved, sortKey: 'solved', align: 'right', minWidth: 72, stickyRight: true, render: (r) => <strong>{r.solved ?? '—'}</strong> }

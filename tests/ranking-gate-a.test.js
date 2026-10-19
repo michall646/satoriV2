@@ -8,6 +8,7 @@ const { rankICPC, rankIOI, filterFrozenSubmits, isFrozen } = require('../apps/ap
 const START = '2025-10-25T10:00:00Z';
 const FREEZE_AT = '2025-10-25T12:00:00Z';
 const UNFREEZE_AT = '2025-10-25T14:00:00Z';
+const BEFORE_FREEZE = Date.parse('2025-10-25T11:00:00Z'); // before the freeze starts
 const FROZEN_NOW = Date.parse('2025-10-25T12:30:00Z'); // between freeze and unfreeze
 const THAWED_NOW = Date.parse('2025-10-25T15:00:00Z'); // after unfreeze
 
@@ -116,6 +117,7 @@ test('filterFrozenSubmits: freeze window, unfreeze, replay and guards (positive+
 });
 
 test('isFrozen reports the window state (positive+negative)', () => {
+  assert.equal(isFrozen({ freezeAtIso: FREEZE_AT, unfreezeAtIso: UNFREEZE_AT, nowMs: BEFORE_FREEZE }), false, 'not frozen before freezeAt');
   assert.equal(isFrozen({ freezeAtIso: FREEZE_AT, unfreezeAtIso: UNFREEZE_AT, nowMs: FROZEN_NOW }), true);
   assert.equal(isFrozen({ freezeAtIso: FREEZE_AT, unfreezeAtIso: UNFREEZE_AT, nowMs: THAWED_NOW }), false);
   assert.equal(isFrozen({ freezeAtIso: FREEZE_AT }), true); // no unfreeze time -> frozen until replay

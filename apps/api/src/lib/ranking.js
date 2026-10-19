@@ -122,8 +122,9 @@ function isFrozen({ freezeAtIso, unfreezeAtIso, nowMs, unfrozenView, _unfrozenVi
   const from = new Date(freezeAtIso).getTime();
   if (!Number.isFinite(from)) return false;
   const until = unfreezeAtIso ? new Date(unfreezeAtIso).getTime() : NaN;
-  if (!Number.isFinite(until)) return true; // no unfreeze time -> frozen until replay
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (now < from) return false; // freeze has not started yet
+  if (!Number.isFinite(until)) return true; // no unfreeze time -> frozen until replay
   return now < until;
 }
 
