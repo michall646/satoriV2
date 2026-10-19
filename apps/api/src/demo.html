@@ -14,27 +14,60 @@
 <h2>Problems (251519) + inline verdicts</h2><div id="probs"></div>
 <h2>Submit</h2>
 <div class="card"><input id="pid" placeholder="problemId"> <input id="fn" value="solution.cpp">
-<textarea id="code" rows="6">int main(){int a,b;cin>>a>>b;cout<<a+b;}</textarea>
+<textarea id="code" rows="6">#include &lt;bits/stdc++.h&gt;
+using namespace std;
+int main(){int a,b;if(!(cin&gt;&gt;a&gt;&gt;b))return 0;cout&lt;&lt;a+b&lt;&lt;endl;}</textarea>
 <button onclick="submit()">Submit</button> <span id="sub" class="pill mut"></span></div>
 <h2>Ranking</h2><div id="rank" class="card"></div>
 </div>
 <script>
 let T=null; const H=()=>({'Content-Type':'application/json',...(T?{Authorization:'Bearer '+T}:{})});
-async function login(){const r=await fetch('/api/auth/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:loginEl().value,password:passEl().value})});const d=await r.json();T=d.token;who.textContent=T?'logged in':'FAIL '+JSON.stringify(d);load();}
-const loginEl=()=>document.getElementById('login'),passEl=()=>document.getElementById('pass');
+const $=id=>document.getElementById(id);
+// Every value that comes from the server is written with textContent. No innerHTML.
+const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=String(text);if(cls)n.className=cls;return n;};
+const errText=d=>(d&&d.error)?(d.error.message||d.error.code||'error'):JSON.stringify(d);
+const TERMINAL=v=>Boolean(v)&&!['QUE','CMP','TST'].includes(v);
+function renderContests(items){const box=$('contests');box.replaceChildren();for(const x of items||[]){const d=el('div');d.append(`${x.id} `,el('b',x.name),` ${x.mode}`);box.append(d);}}
+function renderProblems(items){
+ const box=$('probs');box.replaceChildren();
+ const t=el('table'),hr=el('tr');for(const h of ['code','name','best','tries'])hr.append(el('th',h));t.append(hr);
+ for(const x of items||[]){
+  const v=x._best||'-';
+  const tr=el('tr');
+  tr.append(el('td',x.code,'code'),el('td',`${x.name} (${x.id})`));
+  const td=el('td');td.append(el('span',v,v==='OK'?'pill ok':(v==='-'?'pill mut':'pill bad')));tr.append(td);
+  tr.append(el('td',x._tries||0));
+  t.append(tr);
+ }
+ box.append(t);
+}
+function renderRanking(rows){const box=$('rank');box.replaceChildren();for(const r of (rows||[]).slice(0,10))box.append(el('div',`#${r.rank} ${r.name} ${r.solved??r.total}`));}
+async function login(){
+ try{
+  const r=await fetch('/api/auth/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:$('login').value,password:$('pass').value})});
+  const d=await r.json();T=d.token;
+  if(!T){$('who').textContent='FAIL '+errText(d);return;}
+  $('who').textContent='logged in';load();
+ }catch(e){$('who').textContent='FAIL '+e.message;}
+}
 async function load(){
- const c=await (await fetch('/api/contests',{headers:H()})).json();
- contests.innerHTML=(c.items||[]).map(x=>`<div>${x.id} <b>${x.name}</b> ${x.mode}</div>`).join('');
- const p=await (await fetch('/api/contests/251519/problems',{headers:H()})).json();
-  probs.innerHTML=`<table><tr><th>code</th><th>name</th><th>best</th><th>tries</th></tr>`+(p.items||[]).map(x=>{const v=x._best||'-';const cls=v==='OK'?'pill ok':(v==='-'?'pill mut':'pill bad');return `<tr><td class="code">${x.code}</td><td>${x.name} (${x.id})</td><td><span class="${cls}">${v}</span></td><td>${x._tries||0}</td></tr>`}).join('')+`</table>`;
-
- const rk=await (await fetch('/api/contests/251519/ranking',{headers:H()})).json();
- rank.innerHTML=(rk.rows||[]).slice(0,10).map(r=>`<div>#${r.rank} ${r.name} ${r.solved??r.total}</div>`).join('');
+ try{
+  const c=await (await fetch('/api/contests',{headers:H()})).json();
+  const p=await (await fetch('/api/contests/251519/problems',{headers:H()})).json();
+  const rk=await (await fetch('/api/contests/251519/ranking',{headers:H()})).json();
+  renderContests(c.items);renderProblems(p.items);renderRanking(rk.rows);
+ }catch(e){$('who').textContent='load failed: '+e.message;}
 }
 async function submit(){
- const r=await fetch('/api/submits',{method:'POST',headers:H(),body:JSON.stringify({contestId:251519,problemId:Number(pid.value),filename:fn.value,code:code.value})});
- const d=await r.json(); sub.textContent=r.ok?`#${d.id} ${d.status}`:`FAIL ${JSON.stringify(d)}`;
- if(r.ok){const es=new EventSource(`/api/submits/${d.id}/events`);es.onmessage=e=>{const m=JSON.parse(e.data);sub.textContent=`#${d.id} ${m.status||m.phase}`;if(m.status&&!['QUE','CMP','TST'].includes(m.status)){es.close();load();}};}
+ try{
+  const r=await fetch('/api/submits',{method:'POST',headers:H(),body:JSON.stringify({contestId:251519,problemId:Number($('pid').value),filename:$('fn').value,code:$('code').value})});
+  const d=await r.json();
+  if(!r.ok||!d.id){$('sub').textContent='FAIL '+errText(d);return;}
+  $('sub').textContent=`#${d.id} ${d.status}`;
+  const es=new EventSource(`/api/submits/${d.id}/events`);
+  es.onmessage=e=>{const m=JSON.parse(e.data);const v=m.status||m.phase;$('sub').textContent=`#${d.id} ${v}`;if(TERMINAL(v)){es.close();load();}};
+  es.onerror=()=>{es.close();load();};
+ }catch(e){$('sub').textContent='FAIL '+e.message;}
 }
 load();
 </script></body></html>
