@@ -352,6 +352,54 @@ function ActivityCard({ submits, loading }) {
   );
 }
 
+/* ---------- progress ---------- */
+
+function SparkBars({ counts, lang }) {
+  const max = Math.max(1, ...counts);
+  const label = lang === 'pl' ? 'Zaakceptowane · 14 dni' : 'Accepted · 14 days';
+  const total = counts.reduce((a, b) => a + b, 0);
+  const summary = counts.map((n, i) => `${13 - i}d: ${n}`).join(', ');
+  return (
+    <div>
+      <SectionHead title={label} count={total} />
+      <div className="flex items-end gap-[3px] h-10" role="img" aria-label={`${label} — ${summary}`}>
+        {counts.map((n, i) => (
+          <span
+            key={i}
+            aria-hidden="true"
+            title={`${new Date(Date.now() - (13 - i) * 864e5).toLocaleDateString(lang === 'pl' ? 'pl-PL' : 'en-US')}: ${n}`}
+            className="flex-1 rounded-sm"
+            style={{ height: `${Math.max(4, Math.round((n / max) * 100))}%`, background: n ? 'var(--accent)' : 'var(--border)' }}
+          />
+        ))}
+      </div>
+      <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+        {total > 0
+          ? (lang === 'pl' ? `${total} zaakceptowanych zgłoszeń` : `${total} accepted submissions`)
+          : (lang === 'pl' ? 'Brak zaakceptowanych zgłoszeń w tym okresie.' : 'No accepted submissions in this window.')}
+      </p>
+    </div>
+  );
+}
+
+function ProgressCard({ spark, rank, contestName, lang }) {
+  if (!spark && !rank) return null;
+  const you = lang === 'pl' ? 'Ty' : 'You';
+  return (
+    <section aria-label={lang === 'pl' ? 'Postęp' : 'Progress'}>
+      {spark ? <SparkBars counts={spark.counts} lang={lang} /> : null}
+      {rank ? (
+        <p className="text-sm mt-3 flex gap-1 items-center flex-wrap">
+          <span style={{ color: 'var(--muted)' }}>{STR[lang].rank_your_standing}</span>
+          <strong className="type-mono">{you} #{rank.rank}</strong>
+          {rank.total != null ? <span className="text-xs tabular-nums" style={{ color: 'var(--muted)' }}>· {rank.total}</span> : null}
+          {contestName ? <span className="text-xs truncate" style={{ color: 'var(--muted)' }}>· {contestName}</span> : null}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 /* ---------- teacher ---------- */
 
 function TeacherCard({ managed, counts }) {
@@ -559,6 +607,7 @@ export default function Home() {
     today.setHours(0, 0, 0, 0);
     for (const s of submits) {
       if (s.status !== 'OK' && s.status !== 'ANS') continue;
+      if (s.sampleOnly) continue;
       if (!s.createdAt) continue;
       const d = new Date(s.createdAt);
       d.setHours(0, 0, 0, 0);
@@ -610,6 +659,7 @@ export default function Home() {
         </div>
         <aside className="flex flex-col gap-8 lg:sticky lg:top-20 min-w-0">
           <TodoCard loading={submits === null} error={submitsError} upsolve={upsolveMeta} recommended={recommended} deadlines={deadlines} onRetry={retryAll} />
+          <ProgressCard spark={spark} rank={miniRank?.me?.rank != null ? miniRank.me : null} contestName={recent?.name || null} lang={lang} />
           <StatusMini />
           {showTeacher ? <TeacherCard managed={managed} counts={teacherCounts} /> : null}
         </aside>

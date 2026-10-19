@@ -35,6 +35,12 @@ const FAIL = new Set(['WA', 'TLE', 'MLE', 'RE', 'CE']);
 const LIVE = new Set(['QUE', 'CMP', 'TST']);
 const STEP_KEY = { queued: 'st_queued', compiling: 'st_compiling', testing: 'st_testing', judged: 'st_judged' };
 
+// E3: per-test group/points labels and the honest first-failed note.
+const E3_TXT = {
+  en: { group: 'Group', points: 'Points', first: 'first fail', firstFailed: 'During the contest the API exposes only the first failed test.', problem: 'Problem', verdictOnly: 'Verdict only — per-test detail is hidden for this contest.', noTests: 'No per-test detail for this verdict.' },
+  pl: { group: 'Grupa', points: 'Punkty', first: 'pierwszy błąd', firstFailed: 'W trakcie konkursu API pokazuje tylko pierwszy nieudany test.', problem: 'Zadanie', verdictOnly: 'Tylko werdykt — szczegóły testów są ukryte w tym konkursie.', noTests: 'Brak szczegółów testów dla tego werdyktu.' },
+};
+
 function explainer(s, t) {
   if (s.status === 'TLE') return { title: t.res_ex_tle_t, body: t.res_ex_tle_b.replace('{used}', String(s.cpuMs ?? '?')).replace('{lim}', String(s.limitMs ?? '?')) };
   if (s.status === 'MLE') return { title: t.res_ex_mle_t, body: t.res_ex_mle_b.replace('{used}', String(s.memMb ?? '?')).replace('{lim}', String(s.limitMb ?? '?')) };
@@ -58,9 +64,11 @@ function statusLabel(status, t) {
 export default function SubmitPage({ params }) {
   const t = STR[getLang()];
   const txt = APPEAL_TXT[getLang() === 'pl' ? 'pl' : 'en'];
+  const e3 = E3_TXT[getLang() === 'pl' ? 'pl' : 'en'];
   const router = useRouter();
   const [s, setS] = useState(null);
   const [me, setMe] = useState(null);
+  const [problem, setProblem] = useState(null);
   const [appeal, setAppeal] = useState({ open: false, text: '', sending: false, error: '', status: null, verdict: null });
   useEffect(() => {
     api(`/api/submits/${params.id}`).then(setS).catch(() => {});
@@ -77,6 +85,14 @@ export default function SubmitPage({ params }) {
   useEffect(() => {
     api('/api/me').then(setMe).catch(() => setMe(null));
   }, []);
+
+  // E3: show the contest code/name instead of a bare numeric id.
+  useEffect(() => {
+    if (!s?.problemId) return undefined;
+    let live = true;
+    api(`/api/problems/${s.problemId}`).then((p) => { if (live) setProblem(p); }).catch(() => { if (live) setProblem(null); });
+    return () => { live = false; };
+  }, [s?.problemId]);
 
   // F6: an appeal is real only when the API returns one. No optimistic success.
   useEffect(() => {
@@ -106,10 +122,27 @@ export default function SubmitPage({ params }) {
   const appealable = mineSubmit && judged && !s.sampleOnly && (isFail || flagged);
   const tests = s.perTest || [];
   const passed = tests.filter((t) => t.verdict === 'OK' || t.verdict === 'ANS').length;
+  const hasGroup = tests.some((x) => x.group);
+  const hasPoints = tests.some((x) => x.points != null);
+  const firstFail = tests.find((x) => x.verdict !== 'OK' && x.verdict !== 'ANS');
+  const firstFailedOnly = tests.length > 0 && Number(s.testsTotal) > tests.length;
+  const testColumns = [
+    { key: 'n', label: '#' },
+    ...(hasGroup ? [{ key: 'group', label: e3.group, render: (x) => <span>{x.group || '—'}</span> }] : []),
+    {
+      key: 'verdict', label: t.prob_verdict, fill: true,
+      render: (x) => <VerdictCell verdict={x.verdict} sub={`${x.timeMs ?? '?'}ms · ${x.memMb ?? '?'}MB${firstFail && firstFail.n === x.n ? ` · ${e3.first}` : ''}`} />,
+    },
+    ...(hasPoints ? [{ key: 'points', label: e3.points, align: 'right', render: (x) => <span className="tnum">{x.points ?? '—'}</span> }] : []),
+    { key: 'timeMs', label: t.col_time, align: 'right', render: (x) => <span className="tnum">{x.timeMs ?? '?'}ms</span> },
+    { key: 'memMb', label: t.col_mem, align: 'right', render: (x) => <span className="tnum">{x.memMb ?? '?'}MB</span> },
+    { key: 'msg', label: t.col_message, render: (x) => <span className="tmut">{x.msg || '—'}</span> },
+  ];
 
   async function resubmit() {
     try {
-      const r = await api(`/api/problems/${s.problemId}/submit`, { method: 'POST', body: JSON.stringify({ code: s.code, filename: s.filename }) });
+      // E3: keep the original language — filename detection alone can pick the wrong one.
+      const r = await api(`/api/problems/${s.problemId}/submit`, { method: 'POST', body: JSON.stringify({ code: s.code, filename: s.filename, lang: s.lang }) });
       router.push(`/results/${r.id}`);
     } catch (e) { router.push(`/results/${s.id}`); }
   }
@@ -144,6 +177,12 @@ export default function SubmitPage({ params }) {
           <VerdictPill verdict={s.status} />
         </div>
         <p className="submit-meta">
+          {problem ? (
+            <Link className="underline" href={`/contests/${s.contestId}/problems/${s.problemId}`} prefetch>{problem.code} · {problem.name}</Link>
+          ) : (
+            s.contestId ? <Link className="underline" href={`/contests/${s.contestId}/problems/${s.problemId}`} prefetch>{e3.problem} #{s.problemId}</Link> : <span>{e3.problem} #{s.problemId}</span>
+          )}
+          <span className="submit-meta-sep">·</span>
           <span>{s.lang || '?'}</span><span className="submit-meta-sep">·</span>
           <span>{s.filename || '?'}</span><span className="submit-meta-sep">·</span>
           <span>{s.cpuMs ?? '?'}ms</span><span className="submit-meta-sep">·</span>
@@ -174,21 +213,10 @@ export default function SubmitPage({ params }) {
       <section>
         <div className="section-head mb-2">
           <h2>{t.results_tests}</h2>
-          <p>{tests.length ? `${t.res_passed.replace('{a}', String(passed)).replace('{b}', String(tests.length))} · ${s.cpuMs ?? '?'}ms · ${s.memMb ?? '?'}MB` : t.res_waiting}</p>
+          <p>{tests.length ? `${t.res_passed.replace('{a}', String(passed)).replace('{b}', String(tests.length))} · ${s.cpuMs ?? '?'}ms · ${s.memMb ?? '?'}MB` : judged ? (Number(s.testsTotal) > 0 ? e3.verdictOnly : e3.noTests) : t.res_waiting}</p>
         </div>
-        <Table
-          columns={[
-            { key: 'n', label: '#' },
-            {
-              key: 'verdict', label: t.prob_verdict, fill: true,
-              render: (t) => <VerdictCell verdict={t.verdict} sub={`${t.timeMs ?? '?'}ms · ${t.memMb ?? '?'}MB`} />,
-            },
-            { key: 'timeMs', label: t.col_time, align: 'right', render: (t) => <span className="tnum">{t.timeMs ?? '?'}ms</span> },
-            { key: 'memMb', label: t.col_mem, align: 'right', render: (t) => <span className="tnum">{t.memMb ?? '?'}MB</span> },
-            { key: 'msg', label: t.col_message, render: (t) => <span className="tmut">{t.msg || '—'}</span> },
-          ]}
-          rows={tests.map((t) => ({ ...t, key: t.n }))}
-        />
+        {firstFailedOnly ? <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>{e3.firstFailed}</p> : null}
+        <Table columns={testColumns} rows={tests.map((x) => ({ ...x, key: x.n }))} />
       </section>
 
       {s.expected != null || s.got != null ? <DiffView expected={s.expected || ''} got={s.got || ''} /> : null}
