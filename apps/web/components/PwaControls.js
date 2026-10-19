@@ -96,49 +96,74 @@ export function OfflineIndicator() {
   const [online, setOnline] = useState(true);
   const [pending, setPending] = useState(0);
   const [notice, setNotice] = useState('');
+  const [flushing, setFlushing] = useState(false);
   const t = STR[getLang()];
+  const pl = getLang() === 'pl';
   const noticeTimer = useRef(null);
-  const flushing = useRef(false);
+  const flushingRef = useRef(false);
+  const pendingRef = useRef(null);
 
   useEffect(() => {
     let disposed = false;
-    setOnline(navigator.onLine);
-    setPending(pendingCount());
+    setOnline(navigator.onLine !== false);
+
+    function showNotice(text) {
+      if (disposed) return;
+      setNotice(text);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      noticeTimer.current = setTimeout(() => { if (!disposed) setNotice(''); }, 6000);
+    }
+
+    async function refreshCount() {
+      const count = await pendingCount().catch(() => 0);
+      if (disposed) return count;
+      // Do not let a slow read race the flush's final remaining count.
+      if (flushingRef.current) return pendingRef.current ?? count;
+      const previous = pendingRef.current;
+      pendingRef.current = count;
+      setPending(count);
+      if (previous != null && count > previous) {
+        showNotice(`${pl ? 'w kolejce' : 'queued'} ${count}`);
+      }
+      return count;
+    }
 
     async function flush() {
-      if (flushing.current) return;
-      const before = pendingCount();
-      if (!before) {
-        if (!disposed) setPending(0);
-        return;
-      }
-      flushing.current = true;
+      if (flushingRef.current) return;
+      flushingRef.current = true;
+      if (!disposed) setFlushing(true);
       try {
-        const left = await flushOutbox(api).catch(() => before);
+        const result = await flushOutbox(api);
         if (disposed) return;
-        setPending(left);
-        const sent = before - left;
-        if (!sent) return;
-        const verb = getLang() === 'pl' ? 'wysłano' : 'sent';
-        setNotice(`${verb} ${sent}`);
-        if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        noticeTimer.current = setTimeout(() => { if (!disposed) setNotice(''); }, 6000);
+        pendingRef.current = result.remaining;
+        setPending(result.remaining);
+
+        const parts = [];
+        if (result.sent > 0) parts.push(`${pl ? 'wysłano' : 'sent'} ${result.sent}`);
+        if (result.failed > 0) parts.push(`${pl ? 'nie wysłano' : 'failed'} ${result.failed}`);
+        if (parts.length) showNotice(parts.join(' · '));
+      } catch {
+        showNotice(pl ? 'nie udało się wysłać' : 'send failed');
       } finally {
-        flushing.current = false;
+        flushingRef.current = false;
+        if (!disposed) setFlushing(false);
       }
     }
 
     function goOnline() {
       setOnline(true);
+      showNotice(pl ? 'połączono' : 'online');
       flush();
     }
     function goOffline() { setOnline(false); }
 
     window.addEventListener('online', goOnline);
     window.addEventListener('offline', goOffline);
-    if (navigator.onLine) flush();
+    refreshCount().then(() => {
+      if (!disposed && navigator.onLine !== false) flush();
+    });
 
-    const iv = setInterval(() => { if (!disposed) setPending(pendingCount()); }, 5000);
+    const iv = setInterval(() => { if (!disposed) refreshCount(); }, 5000);
     return () => {
       disposed = true;
       window.removeEventListener('online', goOnline);
@@ -146,18 +171,19 @@ export function OfflineIndicator() {
       clearInterval(iv);
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
-  }, []);
+  }, [pl]);
 
   const parts = [];
   if (!online) parts.push(t.offline);
   if (pending) parts.push(`${t.pwa_outbox} ${pending}`);
+  if (flushing) parts.push(pl ? 'wysyłanie…' : 'sending…');
   if (notice) parts.push(notice);
 
   if (!parts.length) {
     return <span aria-hidden="true" className="text-xs border px-2 py-0.5 rounded invisible select-none"> </span>;
   }
   return (
-    <span role="status" className="text-xs border px-2 py-0.5 rounded" style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }}>
+    <span role="status" aria-busy={flushing} className="text-xs border px-2 py-0.5 rounded" style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }}>
       {parts.join(' · ')}
     </span>
   );

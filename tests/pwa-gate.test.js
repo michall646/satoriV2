@@ -1,6 +1,6 @@
 // Lane N / G4: real PWA install surface + offline submit outbox.
-// Static checks are filesystem-only; outbox checks use a localStorage shim and
-// a mock api function, so no server or browser is required.
+// Static checks are filesystem-only; outbox checks use the in-memory fallback
+// (and a localStorage shim for the legacy migration), so no browser is required.
 'use strict';
 
 const fs = require('node:fs');
@@ -8,7 +8,14 @@ const path = require('node:path');
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { OUTBOX_KEY, queueSubmit, pendingCount, flushOutbox } = require('../apps/web/lib/outbox.js');
+const {
+  LEGACY_KEY,
+  clearOutbox,
+  queueSubmit,
+  listPending,
+  pendingCount,
+  flushOutbox,
+} = require('../apps/web/lib/outbox.js');
 
 const ROOT = path.join(__dirname, '..');
 const WEB = path.join(ROOT, 'apps', 'web');
@@ -45,9 +52,10 @@ function setNavigator(online) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   installStorage();
   setNavigator(true);
+  await clearOutbox();
 });
 
 test('public manifest is valid and installable', () => {
@@ -123,9 +131,9 @@ test('service worker caches only public reads and never private endpoints', () =
     assert.ok(!flat.includes(privatePath), `sw.js must not cache ${privatePath}`);
   }
 
-  // Outbox lives in localStorage; the worker must not pretend it can sync it.
+  // Outbox lives in IndexedDB; the worker must not pretend it can sync it.
   assert.ok(!/addEventListener\(\s*['"]sync['"]/.test(sw), 'no unimplemented background sync');
-  assert.ok(!sw.includes('satori-pending'), 'service worker cannot read the localStorage outbox');
+  assert.ok(!sw.includes('satori-pending'), 'service worker cannot read the legacy localStorage outbox');
 });
 
 test('offline fallback page exists and is precached', () => {
@@ -136,73 +144,78 @@ test('offline fallback page exists and is precached', () => {
   assert.match(sw, /SHELL_URLS\s*=\s*\[[^\]]*OFFLINE_URL/);
 });
 
-test('queueSubmit stores url + body and pendingCount reflects the queue', () => {
-  assert.equal(pendingCount(), 0);
+test('queueSubmit stores url + body and pendingCount reflects the queue', async () => {
+  assert.equal(await pendingCount(), 0);
 
-  const first = queueSubmit({ url: '/api/problems/7/submit', body: { code: 'int main(){}', filename: 'a.cpp' } });
-  const second = queueSubmit({ url: '/api/problems/8/submit', body: '{"code":"x"}' });
+  const first = await queueSubmit({ url: '/api/problems/7/submit', body: { code: 'int main(){}', filename: 'a.cpp' } });
+  const second = await queueSubmit({ url: '/api/problems/8/submit', body: '{"code":"x"}' });
+  assert.ok(first);
+  assert.ok(second);
+  assert.notEqual(first, second);
+  assert.equal(await pendingCount(), 2);
 
-  assert.equal(first, 1);
-  assert.equal(second, 2);
-  assert.equal(pendingCount(), 2);
-
-  const stored = JSON.parse(globalThis.localStorage.getItem(OUTBOX_KEY));
-  assert.equal(stored[0].url, '/api/problems/7/submit');
-  assert.equal(stored[0].method, 'POST');
-  assert.deepEqual(JSON.parse(stored[0].body), { code: 'int main(){}', filename: 'a.cpp' });
-  assert.equal(stored[1].body, '{"code":"x"}');
+  const items = await listPending();
+  assert.equal(items[0].url, '/api/problems/7/submit');
+  assert.equal(items[0].method, 'POST');
+  assert.deepEqual(JSON.parse(items[0].body), { code: 'int main(){}', filename: 'a.cpp' });
+  assert.equal(items[1].body, '{"code":"x"}');
+  // The old localStorage queue is not written anymore.
+  assert.equal(globalThis.localStorage.getItem(LEGACY_KEY), null);
 });
 
 test('flushOutbox replays queued submits through api and empties the queue', async () => {
-  queueSubmit({ url: '/api/problems/7/submit', body: { code: 'a', filename: 'a.cpp', language: 'C++17' } });
+  await queueSubmit({ url: '/api/problems/7/submit', body: { code: 'a', filename: 'a.cpp', language: 'C++17' } });
   const calls = [];
 
-  const left = await flushOutbox(async (url, opts) => {
+  const result = await flushOutbox(async (url, opts) => {
     calls.push({ url, opts });
     return { id: 1, status: 'QUE' };
   });
 
-  assert.equal(left, 0);
-  assert.equal(pendingCount(), 0);
+  assert.deepEqual(result, { sent: 1, failed: 0, remaining: 0 });
+  assert.equal(await pendingCount(), 0);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, '/api/problems/7/submit');
   assert.equal(calls[0].opts.method, 'POST');
   assert.deepEqual(JSON.parse(calls[0].opts.body), { code: 'a', filename: 'a.cpp', language: 'C++17' });
+  assert.ok(calls[0].opts.headers['Idempotency-Key']);
 });
 
 test('flushOutbox keeps failed items for a later retry', async () => {
-  queueSubmit({ url: '/api/problems/1/submit', body: {} });
-  queueSubmit({ url: '/api/problems/2/submit', body: {} });
+  await queueSubmit({ url: '/api/problems/1/submit', body: {} });
+  await queueSubmit({ url: '/api/problems/2/submit', body: {} });
 
   let n = 0;
-  const left = await flushOutbox(async () => {
+  const result = await flushOutbox(async () => {
     n += 1;
     if (n === 1) throw new Error('network down');
     return { ok: true };
   });
 
-  assert.equal(left, 1);
-  assert.equal(pendingCount(), 1);
-  const stored = JSON.parse(globalThis.localStorage.getItem(OUTBOX_KEY));
-  assert.equal(stored[0].url, '/api/problems/1/submit');
+  assert.deepEqual(result, { sent: 1, failed: 1, remaining: 1 });
+  assert.equal(await pendingCount(), 1);
+  const items = await listPending();
+  assert.equal(items[0].url, '/api/problems/1/submit');
 });
 
 test('flushOutbox does nothing while navigator.onLine is false', async () => {
-  queueSubmit({ url: '/api/problems/1/submit', body: {} });
+  await queueSubmit({ url: '/api/problems/1/submit', body: {} });
   setNavigator(false);
   let calls = 0;
 
-  const left = await flushOutbox(async () => { calls += 1; });
+  const result = await flushOutbox(async () => { calls += 1; });
 
-  assert.equal(left, 1);
+  assert.deepEqual(result, { sent: 0, failed: 0, remaining: 1 });
   assert.equal(calls, 0);
-  assert.equal(pendingCount(), 1);
+  assert.equal(await pendingCount(), 1);
 });
 
 test('submit page queues offline instead of showing a fake success', () => {
   const submit = read(WEB, 'app', 'contests', '[id]', 'problems', '[pid]', 'submit', 'page.js');
-  assert.match(submit, /import \{ queueSubmit \} from/);
+  assert.match(submit, /import \{ pendingCount, queueSubmit \} from/);
   assert.match(submit, /navigator\.onLine\s*===\s*false/);
-  assert.match(submit, /queueSubmit\(\{ url, body \}\)/);
+  assert.match(submit, /await queueSubmit\(\{/);
+  assert.match(submit, /await pendingCount\(/);
   assert.match(submit, /queuedOfflineMessage/);
+  assert.ok(!/localStorage\.(setItem|getItem)/.test(submit), 'submit path must not use the old localStorage queue');
 });

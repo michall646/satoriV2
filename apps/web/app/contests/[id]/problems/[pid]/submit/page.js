@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, FILENAME_RE, suggestFilename, STR, getLang } from '../../../../../../lib/client';
-import { queueSubmit } from '../../../../../../lib/outbox';
+import { pendingCount, queueSubmit } from '../../../../../../lib/outbox';
 import { Button, Card, CodeEditor, DiffView, EmptyState, Input, Select, Skeleton, VerdictPill } from '../../../../../../components/ui';
 import EyebrowFx from '../../../../../../components/EyebrowFx';
 
@@ -39,7 +39,7 @@ function isOffline() {
   return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
-// G4: offline submits are replayed from localStorage by PwaControls on reconnect.
+// G4: offline submits are replayed from IndexedDB by PwaControls on reconnect.
 function queuedOfflineMessage() {
   return getLang() === 'pl'
     ? 'Zapisano offline — wyślemy po połączeniu.'
@@ -112,6 +112,25 @@ export default function ProblemSubmitPage({ params }) {
     finally { setBusy(false); }
   }
 
+  // G4: the editor is never cleared here, and it must not be cleared until the
+  // queue write resolves. If the write itself fails, say so rather than showing
+  // a "queued" state that does not exist.
+  async function queueForLater(url, body) {
+    try {
+      await queueSubmit({
+        url,
+        body,
+        lang: body.language,
+        contestId: p.contestId,
+        problemId: p.id,
+      });
+      const pending = await pendingCount().catch(() => 0);
+      setMsg(`${queuedOfflineMessage()} (${pending})`);
+    } catch (e) {
+      setMsg(`${t.subm_failed} ${e.message}`);
+    }
+  }
+
   async function submit() {
     if (!FILENAME_RE.test(fn)) {
       setFnameError(suggestFilename(fn));
@@ -125,8 +144,9 @@ export default function ProblemSubmitPage({ params }) {
 
     // G4: never pretend a submission was sent while the browser is offline.
     if (isOffline()) {
-      const pending = queueSubmit({ url, body });
-      setMsg(`${queuedOfflineMessage()} (${pending})`);
+      setBusy(true);
+      try { await queueForLater(url, body); }
+      finally { setBusy(false); }
       return;
     }
 
@@ -139,8 +159,7 @@ export default function ProblemSubmitPage({ params }) {
     } catch (e) {
       // A dropped connection is not a verdict: keep the submission for replay.
       if (e && e.name === 'TypeError') {
-        const pending = queueSubmit({ url, body });
-        setMsg(`${queuedOfflineMessage()} (${pending})`);
+        await queueForLater(url, body);
         return;
       }
       setMsg(`${t.subm_failed} ${e.message}`);

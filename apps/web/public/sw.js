@@ -4,29 +4,40 @@
  * Scope: app shell + public, read-only API data (contest list, contest problem
  * cockpit, problem statements/samples). Responses requested with credentials
  * never enter the shared cache, so a member's view cannot leak to the next
- * request. The submit outbox lives in localStorage and is flushed by the page;
- * a service worker cannot read localStorage, so this file deliberately makes
+ * request. The submit outbox lives in IndexedDB and is flushed by the page; a
+ * service worker cannot promise delivery for it, so this file deliberately makes
  * no background-sync claim.
  */
 'use strict';
 
-const VERSION = 'satori-v3';
+const VERSION = 'satori-v4';
 const SHELL_CACHE = `${VERSION}-shell`;
 const DATA_CACHE = `${VERSION}-data`;
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
-const SHELL_URLS = ['/', OFFLINE_URL, '/manifest.json', '/icon-192.svg', '/icon-512.svg'];
+const SHELL_URLS = ['/', OFFLINE_URL, '/manifest.json', '/icon-192.svg', '/icon-512.svg', '/apple-touch-icon.png'];
 
 // Exact public reads only. Prefix matching would also capture /tests, /submit,
 // /best and other authenticated routes.
-const PUBLIC_API = [
+const PUBLIC_LISTS = [
   /^\/api\/contests$/,
   /^\/api\/contests\/\d+\/problems$/,
+];
+const PUBLIC_STATEMENTS = [
   /^\/api\/problems\/\d+$/,
 ];
 
-function isPublicApi(pathname) {
-  return PUBLIC_API.some((re) => re.test(pathname));
+function isPublicList(pathname) {
+  return PUBLIC_LISTS.some((re) => re.test(pathname));
+}
+
+function isPublicStatement(pathname) {
+  return PUBLIC_STATEMENTS.some((re) => re.test(pathname));
+}
+
+function isStaticAsset(pathname) {
+  if (pathname === OFFLINE_URL || pathname === '/manifest.json' || pathname === '/apple-touch-icon.png') return true;
+  return /^\/icon-\d+\.svg$/.test(pathname);
 }
 
 // A bearer token (or a cookie) means the response may be personalized.
@@ -60,13 +71,33 @@ self.addEventListener('message', (event) => {
 });
 
 async function putIfCacheable(request, response) {
-  if (!response || !response.ok || response.type === 'opaque') return;
-  const cacheControl = response.headers.get('cache-control') || '';
-  if (/no-store|private/i.test(cacheControl)) return;
-  const cache = await caches.open(DATA_CACHE);
-  await cache.put(request, response.clone());
+  try {
+    if (request.method !== 'GET') return;
+    if (!response || !response.ok || response.type === 'opaque') return;
+    if (hasPrivateHeaders(request)) return;
+    const cacheControl = response.headers.get('cache-control') || '';
+    if (/no-store|private/i.test(cacheControl)) return;
+    const cache = await caches.open(DATA_CACHE);
+    await cache.put(request, response.clone());
+  } catch {
+    /* caching is best-effort; the network response still wins */
+  }
 }
 
+function offlineJson() {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: 'OFFLINE',
+        message: 'Offline and no cached copy.',
+        hint: 'Reconnect to load this view.',
+      },
+    }),
+    { status: 503, headers: { 'Content-Type': 'application/json; charset=utf-8' } },
+  );
+}
+
+// Public lists: show the cached copy immediately, refresh in the background.
 async function staleWhileRevalidate(request) {
   const cache = await caches.open(DATA_CACHE);
   const cached = await cache.match(request);
@@ -84,29 +115,56 @@ async function staleWhileRevalidate(request) {
 
   const fresh = await network;
   if (fresh) return fresh;
-  return new Response(
-    JSON.stringify({
-      error: {
-        code: 'OFFLINE',
-        message: 'Offline and no cached copy.',
-        hint: 'Reconnect to load this view.',
-      },
-    }),
-    { status: 503, headers: { 'Content-Type': 'application/json; charset=utf-8' } },
-  );
+  return offlineJson();
+}
+
+// Statements: the network wins; a cached statement is the offline fallback.
+async function networkFirstData(request) {
+  const cache = await caches.open(DATA_CACHE);
+  try {
+    const response = await fetch(request);
+    await putIfCacheable(request, response);
+    return response;
+  } catch {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    return offlineJson();
+  }
+}
+
+// Shell assets, offline page and icons: cache-first with a network fallback.
+async function cacheFirstStatic(request) {
+  const cache = await caches.open(STATIC_CACHE);
+  // Check every cache: the install step precaches the offline page and icons in
+  // the shell cache.
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      try { await cache.put(request, response.clone()); } catch { /* best-effort */ }
+    }
+    return response;
+  } catch {
+    return new Response('', { status: 503, statusText: 'Offline' });
+  }
 }
 
 // Hashed Next.js chunks are immutable and public: cache-first makes the shell
 // usable offline after the first visit.
-async function cacheFirstStatic(request) {
+async function cacheFirstChunk(request) {
   const cache = await caches.open(STATIC_CACHE);
   const cached = await cache.match(request);
   if (cached) return cached;
-  const response = await fetch(request);
-  if (response.ok) {
-    await cache.put(request, response.clone());
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      try { await cache.put(request, response.clone()); } catch { /* best-effort */ }
+    }
+    return response;
+  } catch {
+    return new Response('', { status: 503, statusText: 'Offline' });
   }
-  return response;
 }
 
 // Pages are never cached; a failed navigation falls back to the cached shell
@@ -138,14 +196,25 @@ self.addEventListener('fetch', (event) => {
   }
   if (url.origin !== self.location.origin) return;
 
-  if (isPublicApi(url.pathname)) {
+  if (isStaticAsset(url.pathname)) {
+    event.respondWith(cacheFirstStatic(request));
+    return;
+  }
+
+  if (isPublicList(url.pathname)) {
     if (hasPrivateHeaders(request)) return;
     event.respondWith(staleWhileRevalidate(request));
     return;
   }
 
+  if (isPublicStatement(url.pathname)) {
+    if (hasPrivateHeaders(request)) return;
+    event.respondWith(networkFirstData(request));
+    return;
+  }
+
   if (url.pathname.startsWith('/_next/static/')) {
-    event.respondWith(cacheFirstStatic(request));
+    event.respondWith(cacheFirstChunk(request));
     return;
   }
 
