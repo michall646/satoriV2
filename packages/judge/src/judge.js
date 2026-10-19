@@ -39,6 +39,18 @@ function queuePosition(submitId) {
   return { position: i + 1, etaSec: (i + 1) * 4 };
 }
 
+// Removes every queued occurrence of a submit (rejudge deleted/recalled).
+function queueRemove(submitId) {
+  const id = Number(submitId);
+  let removed = 0;
+  for (let i = QUEUE.length - 1; i >= 0; i--) {
+    if (Number(QUEUE[i]) !== id) continue;
+    QUEUE.splice(i, 1);
+    removed += 1;
+  }
+  return removed;
+}
+
 // Token / float are decided in-process; a custom checker is a program and is
 // never decided by substring (that old behaviour was a security bug, D7).
 function checkOutput(checker, expected, got, tol) {
@@ -98,7 +110,7 @@ function languageAvailability() {
 }
 
 module.exports = {
-  QUEUE, pushEvent, subscribe, unsubscribe, queuePosition, checkOutput, simulate, LANGUAGE_MATRIX, LANGUAGES, languageAvailability, runProcess, clampTimeMs,
+  QUEUE, pushEvent, subscribe, unsubscribe, queuePosition, queueRemove, checkOutput, simulate, LANGUAGE_MATRIX, LANGUAGES, languageAvailability, runProcess, clampTimeMs,
   parseCheckerSpec: CHECKER.parseCheckerSpec,
   prepareChecker: CHECKER.prepareChecker,
   runChecker: CHECKER.runChecker,

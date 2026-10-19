@@ -1,4 +1,4 @@
-// Satori V2 — in-process judge queue worker.
+// Satori V2 — judge core executed inside the worker thread (C9).
 'use strict';
 const { store } = require('./store');
 const J = require('../../../../packages/judge/src/judge');
@@ -11,19 +11,11 @@ const { notifyUser } = require('./notifications');
 const DEMO_TRIGGERS = process.env.SATORI_DEMO_TRIGGERS === '1';
 
 // ---- judge worker ----
-let judging = false;
-async function processQueue() {
-  if (judging) return;
-  judging = true;
-  try {
-    while (J.QUEUE.length > 0) {
-      const id = J.QUEUE[0];
-      const s = store.get('submits', id);
-      if (!s) { J.QUEUE.shift(); continue; }
-      await judgeOne(s);
-      J.QUEUE.shift();
-    }
-  } finally { judging = false; }
+// C9: the queue lives in judgeQueue and runs judgeOne in a worker thread. This
+// lazy require keeps the existing `processQueue` callers (createSubmit, routes)
+// working without a top-level judgeWorker -> judgeQueue -> judgeThread cycle.
+function processQueue() {
+  return require('./judgeQueue').processQueue();
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // One descriptor per serviced language: { dir, cmd, args, log }.

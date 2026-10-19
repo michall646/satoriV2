@@ -5,6 +5,7 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const { store } = require('./lib/store');
 const { send, handleOptions } = require('./lib/http');
+const judgeQueue = require('./lib/judgeQueue');
 
 const PORT = Number(process.env.PORT || 3001);
 
@@ -20,6 +21,15 @@ const routes = [
   require('./routes/submits'),
   require('./routes/account'),
 ];
+
+// C9/D8: requeue submissions left in QUE by a restart. Idempotent, so tests and
+// tools may call it again after inserting a QUE row. Runs after the store is
+// available (DATA_DIR is already set by the time this module is required).
+try {
+  judgeQueue.recover();
+} catch (e) {
+  console.error(`Judge queue recovery skipped: ${e.message}`);
+}
 
 // ---- router ----
 async function handler(req, res) {
