@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Satori">
+  <rect width="512" height="512" rx="116" fill="#0b0d12"/>
+  <circle cx="256" cy="256" r="146" fill="none" stroke="#5b7cfa" stroke-width="34" stroke-linecap="round" stroke-dasharray="640 277" transform="rotate(-38 256 256)"/>
+  <path d="M322 186c-15-20-42-30-71-26-32 5-54 28-51 53 3 27 27 38 61 45 39 8 62 20 64 48 3 29-22 51-57 54-31 2-59-10-75-31" fill="none" stroke="#f5f7fb" stroke-width="30" stroke-linecap="round"/>
+</svg>

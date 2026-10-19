@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, FILENAME_RE, suggestFilename, STR, getLang } from '../../../../../../lib/client';
+import { queueSubmit } from '../../../../../../lib/outbox';
 import { Button, Card, CodeEditor, DiffView, EmptyState, Input, Select, Skeleton, VerdictPill } from '../../../../../../components/ui';
 import EyebrowFx from '../../../../../../components/EyebrowFx';
 
@@ -32,6 +33,17 @@ function detectLang(filename, code) {
 // E1: an explicit selector value wins only when it is canonical; never send anything else.
 function languageOf(value, filename, code) {
   return CANONICAL_LANGS.includes(value) ? value : detectLang(filename, code);
+}
+
+function isOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+// G4: offline submits are replayed from localStorage by PwaControls on reconnect.
+function queuedOfflineMessage() {
+  return getLang() === 'pl'
+    ? 'Zapisano offline — wyślemy po połączeniu.'
+    : 'Queued offline — will send when you reconnect.';
 }
 
 export default function ProblemSubmitPage({ params }) {
@@ -107,13 +119,32 @@ export default function ProblemSubmitPage({ params }) {
       return;
     }
     if (code.length > 512 * 1024) { setMsg(t.subm_too_large); return; }
+
+    const body = { code, filename: fn, sampleOnly, language: languageOf(language, fn, code) };
+    const url = `/api/problems/${p.id}/submit`;
+
+    // G4: never pretend a submission was sent while the browser is offline.
+    if (isOffline()) {
+      const pending = queueSubmit({ url, body });
+      setMsg(`${queuedOfflineMessage()} (${pending})`);
+      return;
+    }
+
     setBusy(true);
     setMsg(t.subm_submitting);
     try {
-      const r = await api(`/api/problems/${p.id}/submit`, { method: 'POST', body: JSON.stringify({ code, filename: fn, sampleOnly, language: languageOf(language, fn, code) }) });
+      const r = await api(url, { method: 'POST', body: JSON.stringify(body) });
       setMsg(`submit #${r.id} ${r.status}`);
       router.push(`/results/${r.id}`);
-    } catch (e) { setMsg(`${t.subm_failed} ${e.message}`); }
+    } catch (e) {
+      // A dropped connection is not a verdict: keep the submission for replay.
+      if (e && e.name === 'TypeError') {
+        const pending = queueSubmit({ url, body });
+        setMsg(`${queuedOfflineMessage()} (${pending})`);
+        return;
+      }
+      setMsg(`${t.subm_failed} ${e.message}`);
+    }
     finally { setBusy(false); }
   }
 

@@ -1,8 +1,59 @@
-// PWA controls: install prompt + offline indicator + outbox flush. Guard clauses.
+// PWA controls: install prompt, service worker registration, offline indicator
+// and outbox flush. Guard clauses throughout; no fake success states.
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { flushOutbox, pendingCount } from '../lib/outbox';
 import { api, STR, getLang } from '../lib/client';
+
+// Registers /sw.js at site scope. Updates are activated explicitly and the page
+// reloads once, after `controllerchange`, never on the first install.
+export function ServiceWorkerRegister() {
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return undefined;
+    // A dev-mode cached shell would hide hot reloads; production only.
+    if (process.env.NODE_ENV !== 'production') return undefined;
+
+    let disposed = false;
+    let reloading = false;
+    const hadController = Boolean(navigator.serviceWorker.controller);
+
+    function onControllerChange() {
+      if (!hadController || reloading) return;
+      reloading = true;
+      window.location.reload();
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
+      if (disposed) return;
+
+      function activateWaiting(worker) {
+        if (!worker) return;
+        if (!navigator.serviceWorker.controller) return;
+        worker.postMessage({ type: 'SKIP_WAITING' });
+      }
+
+      // An update may already be waiting before this listener attaches.
+      activateWaiting(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const worker = reg.installing;
+        if (!worker) return;
+        worker.addEventListener('statechange', () => {
+          if (worker.state === 'installed') activateWaiting(worker);
+        });
+      });
+    }).catch(() => {
+      /* registration is best-effort; the app remains fully usable */
+    });
+
+    return () => {
+      disposed = true;
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+    };
+  }, []);
+
+  return null;
+}
 
 export function InstallPrompt() {
   const [deferred, setDeferred] = useState(null);
@@ -44,22 +95,70 @@ export function InstallPrompt() {
 export function OfflineIndicator() {
   const [online, setOnline] = useState(true);
   const [pending, setPending] = useState(0);
+  const [notice, setNotice] = useState('');
   const t = STR[getLang()];
+  const noticeTimer = useRef(null);
+  const flushing = useRef(false);
 
   useEffect(() => {
+    let disposed = false;
     setOnline(navigator.onLine);
     setPending(pendingCount());
+
+    async function flush() {
+      if (flushing.current) return;
+      const before = pendingCount();
+      if (!before) {
+        if (!disposed) setPending(0);
+        return;
+      }
+      flushing.current = true;
+      try {
+        const left = await flushOutbox(api).catch(() => before);
+        if (disposed) return;
+        setPending(left);
+        const sent = before - left;
+        if (!sent) return;
+        const verb = getLang() === 'pl' ? 'wysłano' : 'sent';
+        setNotice(`${verb} ${sent}`);
+        if (noticeTimer.current) clearTimeout(noticeTimer.current);
+        noticeTimer.current = setTimeout(() => { if (!disposed) setNotice(''); }, 6000);
+      } finally {
+        flushing.current = false;
+      }
+    }
+
     function goOnline() {
       setOnline(true);
-      flushOutbox(api).then((left) => setPending(left)).catch(() => {});
+      flush();
     }
     function goOffline() { setOnline(false); }
+
     window.addEventListener('online', goOnline);
     window.addEventListener('offline', goOffline);
-    const iv = setInterval(() => setPending(pendingCount()), 5000);
-    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); clearInterval(iv); };
+    if (navigator.onLine) flush();
+
+    const iv = setInterval(() => { if (!disposed) setPending(pendingCount()); }, 5000);
+    return () => {
+      disposed = true;
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+      clearInterval(iv);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    };
   }, []);
 
-  if (online && !pending) return <span aria-hidden="true" className="text-xs border px-2 py-0.5 rounded invisible select-none"> </span>;
-  return <span role="status" className="text-xs border px-2 py-0.5 rounded" style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }}>{!online ? t.offline : ''}{!online && pending ? ' · ' : ''}{pending ? `${t.pwa_outbox} ${pending}` : ''}</span>;
+  const parts = [];
+  if (!online) parts.push(t.offline);
+  if (pending) parts.push(`${t.pwa_outbox} ${pending}`);
+  if (notice) parts.push(notice);
+
+  if (!parts.length) {
+    return <span aria-hidden="true" className="text-xs border px-2 py-0.5 rounded invisible select-none"> </span>;
+  }
+  return (
+    <span role="status" className="text-xs border px-2 py-0.5 rounded" style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }}>
+      {parts.join(' · ')}
+    </span>
+  );
 }

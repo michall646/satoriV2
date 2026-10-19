@@ -9,7 +9,7 @@ import Toast from '../components/ui/Toast';
 import { ProfileLink, SearchBar } from '../components/NavControls';
 import { NavLinks, MobileMenu, TopHint } from '../components/NavLinks';
 import ContestTimer from '../components/ContestTimer';
-import { InstallPrompt, OfflineIndicator } from '../components/PwaControls';
+import { InstallPrompt, OfflineIndicator, ServiceWorkerRegister } from '../components/PwaControls';
 import { LangToggle, ThemeToggle } from '../components/ShellControls';
 
 const inter = Inter({ subsets: ['latin', 'latin-ext'], variable: '--font-inter', display: 'swap' });
@@ -19,6 +19,10 @@ export const metadata = {
   title: { template: '%s | Satori V2', default: 'Satori V2' },
   description: 'API-first judge + contests',
   manifest: '/manifest.json',
+  icons: {
+    icon: [{ url: '/icon-192.svg', sizes: '192x192', type: 'image/svg+xml' }],
+    shortcut: '/icon-192.svg',
+  },
   appleWebApp: { capable: true, title: 'Satori V2' },
 };
 
@@ -65,6 +69,7 @@ export default function RootLayout({ children }) {
         <div className="shell pt-2"><StatusBanner /></div>
         <main className="shell pt-6 pb-12">{children}</main>
         <InstallPrompt />
+        <ServiceWorkerRegister />
         <Toast />
         <CmdK />
       </body>
