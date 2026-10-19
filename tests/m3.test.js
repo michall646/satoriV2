@@ -168,7 +168,8 @@ test('bulk-extend shifts contest + explicit deadlines (S3-3)', async () => {
 test('status tells the truth about the runner (S3-5)', async () => {
   const r = await fetch(`${BASE}/api/status`);
   const s = await r.json();
-  assert.equal(s.workers[0], 'local-spawn', 'real worker label');
+  assert.equal(s.workers[0], 'worker_thread', 'real worker label');
+  assert.equal(s.persistentQueue, true, 'persistent queue stated');
   assert.ok(Array.isArray(s.languages) && s.languages.length >= 1, 'real language availability');
   assert.equal(s.maintenance, null, 'no permanent maintenance banner (web hides it)');
   assert.match(String(s.etaNote || ''), /estimate/, 'ETA labelled as estimate');
