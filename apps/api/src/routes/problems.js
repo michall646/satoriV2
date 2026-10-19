@@ -585,7 +585,7 @@ async function handle(req, res, url, p, m) {
       // Validators and the reference solution are authoring secrets: students must
       // never receive the model solution through a normal problem read.
       if (!canManageProblem(me, pr)) {
-        for (const f of ['validator', 'validatorLang', 'validatorCode', 'validatorFile', 'referenceCode', 'referenceLang']) delete out[f];
+        for (const f of ['validator', 'validatorLang', 'validatorCode', 'validatorFile', 'referenceCode', 'referenceLang', 'checkerCode', 'checkerLang', 'checkerFile']) delete out[f];
       }
       return send(res, 200, out);
     }
