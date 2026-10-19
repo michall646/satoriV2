@@ -56,12 +56,24 @@ export default function ManageOverviewPage({ params }) {
   const [busy, setBusy] = useState(false);
   const [extendDays, setExtendDays] = useState('7');
   const [showExtend, setShowExtend] = useState(false);
+  const [gradeReady, setGradeReady] = useState(false);
+  const [integrityFlags, setIntegrityFlags] = useState(null);
+  const [webhooks, setWebhooks] = useState([]);
 
   useEffect(() => {
     api(`/api/contests/${params.id}/problems?all=1`).then((d) => setProblems(d.items || [])).catch(() => setProblems([]));
     api(`/api/contests/${params.id}/members`).then(setMembers).catch(() => setMembers({ members: [], pending: [] }));
     api(`/api/contests/${params.id}/teams`).then((d) => setTeams(d.items || [])).catch(() => setTeams([]));
     api(`/api/contests/${params.id}/audit`).then((d) => setAudit(d.items || [])).catch(() => setAudit([]));
+    api(`/api/contests/${params.id}/grade/matrix`)
+      .then((d) => setGradeReady((d.problems || []).length > 0 && (d.scale || []).length > 0))
+      .catch(() => setGradeReady(false));
+    api(`/api/contests/${params.id}/integrity/timeline`)
+      .then((d) => setIntegrityFlags(Number(d.count || 0)))
+      .catch(() => setIntegrityFlags(null));
+    api(`/api/contests/${params.id}/webhooks`)
+      .then((d) => setWebhooks(d.items || []))
+      .catch(() => setWebhooks([]));
   }, [params.id]);
 
   const visibleProblems = useMemo(() => (problems || []).filter((p) => (p.visibility || 'visible') === 'visible').length, [problems]);
@@ -144,11 +156,11 @@ export default function ManageOverviewPage({ params }) {
     { ok: !!(contest.name && contest.mode), label: t.manage_chk_settings, href: `/contests/${params.id}/manage/settings` },
     { ok: !!dp, label: `${t.manage_chk_scoring} ${scoringTxt}`, href: `/contests/${params.id}/manage/settings` },
     { ok: visibleProblems >= 1, label: `${t.problems}: ${visibleProblems} ${t.manage_visible_l} (${(problems || []).length} ${t.manage_total})`, href: `/contests/${params.id}/manage/problems` },
-    { ok: !!(contest.startAt && contest.stopAt), label: t.manage_chk_schedule, href: `/contests/${params.id}/manage/settings` },
+    { ok: !!(contest.startAt && (contest.endAt || contest.stopAt)), label: t.manage_chk_schedule, href: `/contests/${params.id}/manage/settings` },
     { ok: !!contest.registration, label: `${t.mset_registration}: ${regTxt} · ${members.members.length} ${t.contests_members}`, href: `/contests/${params.id}/manage/members` },
-    { ok: false, label: t.manage_chk_grade, href: `/contests/${params.id}/manage/grade` },
-    { ok: false, label: t.manage_chk_integrity, href: `/contests/${params.id}/manage/integrity` },
-    { ok: false, label: t.manage_chk_webhooks, href: `/contests/${params.id}/manage/announcements` },
+    { ok: gradeReady, label: t.manage_chk_grade, href: `/contests/${params.id}/manage/grade` },
+    { ok: integrityFlags !== null, label: `${t.manage_chk_integrity}${integrityFlags != null ? ` · ${integrityFlags}` : ''}`, href: `/contests/${params.id}/manage/integrity` },
+    { ok: webhooks.length > 0, label: `${t.manage_chk_webhooks}${webhooks.length ? ` · ${webhooks.length}` : ''}`, href: `/contests/${params.id}/manage/webhooks` },
   ];
   const done = checklist.filter((s) => s.ok).length;
   const pct = Math.round((done / checklist.length) * 100);

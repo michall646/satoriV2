@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { api, API, STR, getLang } from '../../../lib/client';
 import { Countdown } from '../../../components/ui/Code';
+import ExamGuard from '../../../components/ExamGuard';
 
 function pickNextDeadline(items) {
   if (!items || !items.length) return null;
@@ -60,8 +61,14 @@ export default function ContestLayout({ children, params }) {
   if (isAdmin) tabs.push({ href: `/contests/${params.id}/manage`, labelKey: 'contest_tab_manage', active: pathname.includes('/manage'), icon: <><line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" /><line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" /><line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" /><line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" /></> });
 
   // Manage owns its own grouped rail — drop the contest nav there so two navs don't stack.
+  // F4: ExamGuard is mounted on every contest route, manage included.
   if (pathname.includes('/manage')) {
-    return <div className="w-full min-w-0">{children}</div>;
+    return (
+      <div className="w-full min-w-0">
+        <ExamGuard contestId={params.id} staff={isAdmin} />
+        {children}
+      </div>
+    );
   }
 
   return (
@@ -80,7 +87,10 @@ export default function ContestLayout({ children, params }) {
           </Link>
         ))}
       </nav>
-      <div className="min-w-0 flex-1 pt-2 md:pt-0">{children}</div>
+      <div className="min-w-0 flex-1 pt-2 md:pt-0">
+        <ExamGuard contestId={params.id} staff={isAdmin} />
+        {children}
+      </div>
     </div>
   );
 }

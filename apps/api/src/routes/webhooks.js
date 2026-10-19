@@ -1,38 +1,36 @@
-// Satori V2 — webhook registration, delivery, and delivery log.
+// Satori V2 — webhook registration, delivery, SSRF guard, signing, and delivery log.
 'use strict';
 const { store } = require('../lib/store');
-const { send, readBody } = require('../lib/http');
+const { send, readBody, assertSafeWebhookUrl, postJsonPinned, signWebhook } = require('../lib/http');
 const { needAuth, forbid, canManageContest, audit } = require('../lib/authz');
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function isSuper(me) { return Boolean(me && (me.rolesGlobal || []).includes('superadmin')); }
+function hookUrlError(res, safe) {
+  return send(res, 422, { error: { code: safe.code || 'URL', message: safe.message, hint: safe.hint } });
+}
 
 // ---- webhook delivery (S2-7): POST + timeout + retries with backoff + delivery log ----
 const WEBHOOK_TIMEOUT_MS = Number(process.env.SATORI_WEBHOOK_TIMEOUT_MS || 5000);
 const WEBHOOK_DELAY_MS = Number(process.env.SATORI_WEBHOOK_DELAY_MS || 500);
 const WEBHOOK_ATTEMPTS = Math.max(1, Number(process.env.SATORI_WEBHOOK_ATTEMPTS || 4));
 async function deliverToHook(hook, event, body) {
+  // A4: validate again at delivery time so a DNS record cannot be rebound after registration.
+  const safe = await assertSafeWebhookUrl(hook.url);
+  if (!safe.ok) return { ok: false, httpStatus: null, attempts: 0, error: `blocked: ${safe.code}` };
+  const raw = JSON.stringify(body);
+  const headers = { 'Content-Type': 'application/json', 'X-Satori-Event': event };
+  const signature = signWebhook(raw);
+  if (signature) headers['X-Satori-Signature'] = signature;
   let lastError = null;
   let lastHttp = null;
   for (let i = 0; i < WEBHOOK_ATTEMPTS; i++) {
     if (i > 0) await sleep(WEBHOOK_DELAY_MS * 2 ** (i - 1));
     const started = Date.now();
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), WEBHOOK_TIMEOUT_MS);
-    try {
-      const res = await fetch(hook.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Satori-Event': event },
-        body: JSON.stringify(body),
-        signal: ctl.signal,
-      });
-      clearTimeout(timer);
-      if (res.ok) return { ok: true, httpStatus: res.status, attempts: i + 1, ms: Date.now() - started };
-      lastHttp = res.status;
-      lastError = `HTTP ${res.status}`;
-    } catch (e) {
-      clearTimeout(timer);
-      lastError = String((e && e.message) || e);
-    }
+    const result = await postJsonPinned(safe, raw, headers, WEBHOOK_TIMEOUT_MS);
+    if (result.ok) return { ok: true, httpStatus: result.httpStatus, attempts: i + 1, ms: result.ms || (Date.now() - started) };
+    lastHttp = result.httpStatus || null;
+    lastError = result.error || `HTTP ${result.httpStatus}`;
   }
   return { ok: false, httpStatus: lastHttp, attempts: WEBHOOK_ATTEMPTS, error: lastError };
 }
@@ -74,8 +72,10 @@ async function handle(req, res, url, p, m) {
     if (m === 'GET') return send(res, 200, { items: store.query('webhooks', (h) => String(h.contestId) === String(c.id)) });
     const b = await readBody(req);
     if (!b.url) return send(res, 422, { error: { code: 'URL', message: 'Webhook URL required.', hint: 'https://…' } });
-    const row = store.insert('webhooks', { contestId: c.id, url: b.url, events: b.events || ['submit.judged'], by: me.id, at: new Date().toISOString() });
-    audit(me.id, 'contest.webhook.register', `contest:${c.id}`, { url: b.url });
+    const safe = await assertSafeWebhookUrl(b.url);
+    if (!safe.ok) return hookUrlError(res, safe);
+    const row = store.insert('webhooks', { contestId: c.id, url: safe.url.toString(), events: b.events || ['submit.judged'], by: me.id, at: new Date().toISOString() });
+    audit(me.id, 'contest.webhook.register', `contest:${c.id}`, { url: row.url });
     return send(res, 201, row);
   }
   mt = p.match(/^\/api\/contests\/(\d+)\/webhooks\/deliveries$/);
@@ -131,12 +131,37 @@ async function handle(req, res, url, p, m) {
     return send(res, 200, { ok: true, deleted: true });
   }
 
-  if (p === '/api/webhooks' && m === 'GET') return send(res, 200, { items: store.all('webhooks') });
+  // Global hooks: A5 — auth required, visible only to superadmins or the contest's admins.
+  if (p === '/api/webhooks' && m === 'GET') {
+    const me = needAuth(req, res);
+    if (!me) return true;
+    const canSee = (h) => {
+      if (h.contestId == null) return isSuper(me);
+      const c = store.get('contests', h.contestId);
+      return Boolean(c) && canManageContest(me, c);
+    };
+    return send(res, 200, { items: store.all('webhooks').filter(canSee) });
+  }
   if (p === '/api/webhooks' && m === 'POST') {
     const me = needAuth(req, res);
     if (!me) return true;
     const b = await readBody(req);
-    return send(res, 201, store.insert('webhooks', { url: b.url, events: b.events || ['submit.judged'], by: me.id }));
+    const contestId = b.contestId != null && b.contestId !== '' ? b.contestId : null;
+    if (contestId == null && !isSuper(me)) return forbid(res);
+    if (contestId != null) {
+      const c = store.get('contests', contestId);
+      if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: '' } });
+      if (!canManageContest(me, c)) return forbid(res);
+    }
+    if (!b.url) return send(res, 422, { error: { code: 'URL', message: 'Webhook URL required.', hint: 'https://…' } });
+    const safe = await assertSafeWebhookUrl(b.url);
+    if (!safe.ok) return hookUrlError(res, safe);
+    const row = store.insert('webhooks', {
+      contestId: contestId != null ? (Number(contestId) || contestId) : null,
+      url: safe.url.toString(), events: b.events || ['submit.judged'], by: me.id, at: new Date().toISOString(),
+    });
+    audit(me.id, 'webhook.register', row.contestId ? `contest:${row.contestId}` : 'global', { url: row.url });
+    return send(res, 201, row);
   }
   return false;
 }

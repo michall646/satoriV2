@@ -3,11 +3,43 @@
 const { store } = require('../lib/store');
 const J = require('../../../../packages/judge/src/judge');
 const { send } = require('../lib/http');
-const { authUser, needAuth, reqLang, localizeRow, submitView } = require('../lib/authz');
+const {
+  authUser, needAuth, forbid, canManageProblem, boardModeOf, canManageContest,
+  submitVisibleOnBoard, teamHasMember, reqLang, localizeRow, submitView,
+} = require('../lib/authz');
 const { zipStore } = require('../lib/zip');
 const { fireWebhooks } = require('./webhooks');
 const { processQueue } = require('../lib/judgeWorker');
 const { createSubmit } = require('../lib/createSubmit');
+
+function boardHiddenReject(res) {
+  return send(res, 403, { error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.', hint: 'It becomes visible after the contest.' } });
+}
+function meOnlyReject(res, me) {
+  if (!me) return send(res, 401, { error: { code: 'AUTH', message: 'Login required to view this board.', hint: 'POST /api/auth/token.' } });
+  return send(res, 403, { error: { code: 'BOARD_ME_ONLY', message: 'This board is private to each contestant.', hint: 'Open your own results.' } });
+}
+function boardGate(res, contest, me) {
+  if (!contest || boardModeOf(contest) !== 'hidden') return false;
+  if (canManageContest(me, contest)) return false;
+  return boardHiddenReject(res);
+}
+function isSubmitOwner(s, me) {
+  if (!me) return false;
+  if (String(s.userId) === String(me.id)) return true;
+  const team = s.teamId ? store.get('teams', s.teamId) : null;
+  return Boolean(team) && teamHasMember(team, me.id);
+}
+// Individual results stay visible to their owner; only the board/list is hidden.
+function canViewIndividual(s, contest, me) {
+  if (!contest) return true;
+  if (canManageContest(me, contest)) return true;
+  if (boardModeOf(contest) === 'everyone') return true;
+  return isSubmitOwner(s, me);
+}
+function individualReject(res, contest, me) {
+  return boardModeOf(contest) === 'hidden' ? boardHiddenReject(res) : meOnlyReject(res, me);
+}
 
 async function handle(req, res, url, p, m) {
   const u = url;
@@ -23,12 +55,28 @@ async function handle(req, res, url, p, m) {
     const limit = Math.min(Number(u.searchParams.get('limit') || 50), 1000);
     const offset = Math.max(0, Number(u.searchParams.get('offset') || 0));
     const team = u.searchParams.get('team');
+    const prob = problem ? store.get('problems', problem) : null;
+    const scopeContest = contest
+      ? store.get('contests', contest)
+      : (prob && prob.contestId != null ? store.get('contests', prob.contestId) : null);
+    if (scopeContest && boardGate(res, scopeContest, me)) return true;
     let items = store.all('submits').sort((a, b) => Number(b.id) - Number(a.id));
     if (contest) items = items.filter((s) => String(s.contestId) === String(contest));
     if (problem) items = items.filter((s) => String(s.problemId) === String(problem));
     if (verdict) items = items.filter((s) => s.status === verdict);
     if (team) items = items.filter((s) => String(s.teamId) === String(team));
     if (mine && me) items = items.filter((s) => String(s.userId) === String(me.id));
+    // A10: hidden/me-only applies to every row, including the unfiltered list.
+    if (scopeContest && boardModeOf(scopeContest) === 'me-only' && !canManageContest(me, scopeContest)) {
+      if (!me) return meOnlyReject(res, me);
+      items = items.filter((s) => String(s.userId) === String(me.id));
+    }
+    if (!scopeContest) {
+      items = items.filter((s) => {
+        const c = s.contestId != null ? store.get('contests', s.contestId) : null;
+        return submitVisibleOnBoard(c, me, s);
+      });
+    }
     const total = items.length;
     // code + full per-test data: owner/jury only, per verdict visibility
     const lang = reqLang(req, u);
@@ -63,7 +111,10 @@ async function handle(req, res, url, p, m) {
   if (mt && (m === 'GET' || m === 'POST')) {
     const s = store.get('submits', mt[1]);
     if (!s) return send(res, 404, { error: { code: 'NO_SUBMIT', message: 'Submit not found.', hint: '' } });
+    const sContest = s.contestId != null ? store.get('contests', s.contestId) : null;
     if (mt[3] === 'events' && m === 'GET') {
+      const me = authUser(req);
+      if (!canViewIndividual(s, sContest, me)) return individualReject(res, sContest, me);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' });
       res.write(`data: ${JSON.stringify({ submitId: s.id, status: s.status })}\n\n`);
       J.subscribe(s.id, res);
@@ -73,7 +124,10 @@ async function handle(req, res, url, p, m) {
     if (mt[3] === 'rejudge' && m === 'POST') {
       const me = needAuth(req, res);
       if (!me) return true;
-      store.update('submits', s.id, { status: 'QUE', testsDone: 0 });
+      const pr = store.get('problems', s.problemId);
+      if (!canManageProblem(me, pr)) return forbid(res);
+      // A9: clear stale judge output so the next view cannot show the old verdict.
+      store.update('submits', s.id, { status: 'QUE', testsDone: 0, judgedAt: null, perTest: [], perTestFull: null, compileLog: '', points: 0 });
       J.QUEUE.push(Number(s.id));
       processQueue()
         .then(() => fireWebhooks('rejudge.done', { submitId: s.id, contestId: s.contestId || null, problemId: s.problemId }))
@@ -81,7 +135,9 @@ async function handle(req, res, url, p, m) {
       return send(res, 200, { ok: true });
     }
     if (!mt[3] && m === 'GET') {
-      return send(res, 200, localizeRow(submitView(s, authUser(req)), reqLang(req, u)));
+      const me = authUser(req);
+      if (!canViewIndividual(s, sContest, me)) return individualReject(res, sContest, me);
+      return send(res, 200, localizeRow(submitView(s, me), reqLang(req, u)));
     }
   }
   return false;

@@ -3,12 +3,25 @@
 const { store } = require('../lib/store');
 const J = require('../../../../packages/judge/src/judge');
 const { send, readBody } = require('../lib/http');
-const { authUser, needAuth, forbid, audit, canManageProblem, canManageContest, reqLang, localizeRow, submitView } = require('../lib/authz');
+const { authUser, needAuth, forbid, audit, canManageProblem, canManageContest, canReadContest, reqLang, localizeRow, submitView } = require('../lib/authz');
 const { enrichProblemWithDeadline } = require('../lib/contestAccess');
 const { isAccepted } = require('../lib/ranking');
 const { fireWebhooks } = require('./webhooks');
 const { processQueue } = require('../lib/judgeWorker');
 const { createSubmit } = require('../lib/createSubmit');
+
+// A13: test authoring accepts only these fields; problemId/groupId are checked against
+// the URL problem so an admin of contest A cannot write into contest B's tests.
+const GROUP_FIELDS = ['name', 'points', 'subtask', 'checker', 'timeMs', 'memoryMb', 'order'];
+const CASE_FIELDS = ['groupId', 'name', 'input', 'expected', 'checker', 'timeMs', 'memoryMb', 'points', 'subtask'];
+function pickFields(obj, fields) {
+  const out = {};
+  for (const f of fields) if (Object.prototype.hasOwnProperty.call(obj || {}, f)) out[f] = obj[f];
+  return out;
+}
+function groupMismatch(res) {
+  return send(res, 403, { error: { code: 'GROUP_MISMATCH', message: 'Test group does not belong to this problem.', hint: 'Reload the problem tests.' } });
+}
 
 async function handle(req, res, url, p, m) {
   const u = url;
@@ -39,6 +52,9 @@ async function handle(req, res, url, p, m) {
       const visP = pr.visibility || 'visible';
       if (visP !== 'visible' && !canManageProblem(authUser(req), pr)) return send(res, 403, { error: { code: 'HIDDEN', message: 'Problem is not visible.', hint: 'Ask a contest admin to publish it.' } });
       const contest = pr.contestId ? store.get('contests', pr.contestId) : null;
+      if (contest && !canReadContest(contest, authUser(req))) {
+        return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
+      }
       return send(res, 200, contest ? enrichProblemWithDeadline(pr, contest) : pr);
     }
     if (!sub && m === 'PATCH') {
@@ -80,8 +96,18 @@ async function handle(req, res, url, p, m) {
       if (!me) return true;
       if (!canManageProblem(me, pr)) return forbid(res);
       const b = await readBody(req);
-      if (b.group) return send(res, 201, store.insert('testGroups', { problemId: pr.id, ...b.group }));
-      if (b.case) return send(res, 201, store.insert('testCases', { ...b.case }));
+      if (b.group) {
+        if (b.group.problemId != null && String(b.group.problemId) !== String(pr.id)) return groupMismatch(res);
+        return send(res, 201, store.insert('testGroups', { problemId: pr.id, ...pickFields(b.group, GROUP_FIELDS) }));
+      }
+      if (b.case) {
+        if (b.case.problemId != null && String(b.case.problemId) !== String(pr.id)) return groupMismatch(res);
+        if (b.case.groupId != null) {
+          const g = store.get('testGroups', b.case.groupId);
+          if (!g || String(g.problemId) !== String(pr.id)) return groupMismatch(res);
+        }
+        return send(res, 201, store.insert('testCases', pickFields(b.case, CASE_FIELDS)));
+      }
       return send(res, 422, { error: { code: 'TEST', message: 'Provide group or case.', hint: '' } });
     }
     if (sub === 'best' && m === 'GET') {

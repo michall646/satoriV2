@@ -4,9 +4,32 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, API, STR, getLang } from '../../../lib/client';
-import { Button, Card, CodeBlock, CopyButton, DiffView, Skeleton, Table, VerdictCell, VerdictPill } from '../../../components/ui';
+import { Button, Card, CodeBlock, CopyButton, DiffView, Skeleton, Table, Textarea, VerdictCell, VerdictPill } from '../../../components/ui';
 
 const DOCS = 'https://docs.satori.example/judge#verdicts';
+
+const APPEAL_TXT = {
+  en: {
+    appeal: 'Appeal this verdict',
+    appealCta: 'Appeal',
+    appealLabel: 'What should the jury re-check?',
+    appealHint: 'Only your own failed or flagged submission can be appealed.',
+    appealSend: 'Send appeal',
+    appealOpen: 'Open appeal — the jury has not resolved it yet.',
+    appealStatus: 'Status',
+    appealResolved: 'Resolved.',
+  },
+  pl: {
+    appeal: 'Odwołaj się od werdyktu',
+    appealCta: 'Odwołanie',
+    appealLabel: 'Co jury ma sprawdzić ponownie?',
+    appealHint: 'Odwołanie dotyczy tylko własnego nieudanego lub oznaczonego zgłoszenia.',
+    appealSend: 'Wyślij odwołanie',
+    appealOpen: 'Odwołanie otwarte — jury jeszcze go nie rozpatrzyło.',
+    appealStatus: 'Status',
+    appealResolved: 'Rozpatrzono.',
+  },
+};
 
 const FAIL = new Set(['WA', 'TLE', 'MLE', 'RE', 'CE']);
 const LIVE = new Set(['QUE', 'CMP', 'TST']);
@@ -34,8 +57,11 @@ function statusLabel(status, t) {
 
 export default function SubmitPage({ params }) {
   const t = STR[getLang()];
+  const txt = APPEAL_TXT[getLang() === 'pl' ? 'pl' : 'en'];
   const router = useRouter();
   const [s, setS] = useState(null);
+  const [me, setMe] = useState(null);
+  const [appeal, setAppeal] = useState({ open: false, text: '', sending: false, error: '', status: null, verdict: null });
   useEffect(() => {
     api(`/api/submits/${params.id}`).then(setS).catch(() => {});
     const es = new EventSource(`${API}/api/submits/${params.id}/events`);
@@ -47,6 +73,25 @@ export default function SubmitPage({ params }) {
     };
     return () => es.close();
   }, [params.id]);
+
+  useEffect(() => {
+    api('/api/me').then(setMe).catch(() => setMe(null));
+  }, []);
+
+  // F6: an appeal is real only when the API returns one. No optimistic success.
+  useEffect(() => {
+    if (!s || !s.contestId) return undefined;
+    let live = true;
+    api(`/api/contests/${s.contestId}/integrity/appeals/mine`)
+      .then((d) => {
+        if (!live) return;
+        const row = (d.items || []).find((a) => String(a.submitId) === String(s.id));
+        if (!row) return;
+        setAppeal((prev) => ({ ...prev, status: row.status || 'open', verdict: row.verdict || null }));
+      })
+      .catch(() => { /* not a member or anonymous: the CTA stays hidden */ });
+    return () => { live = false; };
+  }, [s?.contestId, s?.id]);
   if (!s) return <Skeleton lines={6} />;
   const ex = explainer(s, t);
   const phase = s.phase || s.status;
@@ -55,6 +100,10 @@ export default function SubmitPage({ params }) {
   const steps = ['queued', 'compiling', 'testing', 'judged'];
   const isFail = FAIL.has(s.status);
   const isLive = LIVE.has(s.status) || !judged;
+  // F6: only the owner of a failed/flagged, judged submission sees the appeal CTA.
+  const flagged = s.flagged === true || s.integrityFlag === true;
+  const mineSubmit = me != null && String(me.id) === String(s.userId);
+  const appealable = mineSubmit && judged && !s.sampleOnly && (isFail || flagged);
   const tests = s.perTest || [];
   const passed = tests.filter((t) => t.verdict === 'OK' || t.verdict === 'ANS').length;
 
@@ -63,6 +112,22 @@ export default function SubmitPage({ params }) {
       const r = await api(`/api/problems/${s.problemId}/submit`, { method: 'POST', body: JSON.stringify({ code: s.code, filename: s.filename }) });
       router.push(`/results/${r.id}`);
     } catch (e) { router.push(`/results/${s.id}`); }
+  }
+
+  async function sendAppeal(e) {
+    e.preventDefault();
+    const text = String(appeal.text || '').trim();
+    if (!text || !s.contestId) return;
+    setAppeal((a) => ({ ...a, sending: true, error: '' }));
+    try {
+      const r = await api(`/api/contests/${s.contestId}/integrity/appeals`, {
+        method: 'POST',
+        body: JSON.stringify({ submitId: s.id, text }),
+      });
+      setAppeal({ open: false, text: '', sending: false, error: '', status: r.status || 'open', verdict: r.verdict || null });
+    } catch (err) {
+      setAppeal((a) => ({ ...a, sending: false, error: err.message }));
+    }
   }
 
   return (
@@ -134,6 +199,40 @@ export default function SubmitPage({ params }) {
         <Button variant="secondary" onClick={() => { const b = new Blob([s.code || ''], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = s.filename || `submit-${s.id}.txt`; a.click(); }}>{t.results_download}</Button>
         <span className="inline-flex"><CopyButton text={s.code || ''} label={t.res_copy_code} /></span>
       </div>
+
+      {appealable ? (
+        <Card className="text-sm">
+          <div className="flex items-center gap-2 flex-wrap">
+            <strong>{txt.appeal}</strong>
+            {appeal.status ? (
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                {txt.appealStatus}: {appeal.status}{appeal.verdict ? ` (${appeal.verdict})` : ''}
+              </span>
+            ) : null}
+          </div>
+          {appeal.status === 'open' ? <p className="mt-1">{txt.appealOpen}</p> : null}
+          {appeal.status && appeal.status !== 'open' ? <p className="mt-1">{txt.appealResolved}</p> : null}
+          {!appeal.status && !appeal.open ? (
+            <Button variant="secondary" className="mt-2" onClick={() => setAppeal((a) => ({ ...a, open: true, error: '' }))}>{txt.appealCta}</Button>
+          ) : null}
+          {!appeal.status && appeal.open ? (
+            <form onSubmit={sendAppeal} className="mt-2 flex flex-col gap-2">
+              <Textarea
+                label={txt.appealLabel}
+                rows={3}
+                value={appeal.text}
+                onChange={(e) => setAppeal((a) => ({ ...a, text: e.target.value }))}
+                hint={txt.appealHint}
+              />
+              {appeal.error ? <p role="alert" className="text-xs" style={{ color: 'var(--wa-text)' }}><span aria-hidden="true">⚠ </span>{appeal.error}</p> : null}
+              <div className="flex gap-2">
+                <Button type="submit" disabled={appeal.sending || !String(appeal.text || '').trim()}>{txt.appealSend}</Button>
+                <Button variant="secondary" onClick={() => setAppeal((a) => ({ ...a, open: false, error: '' }))}>{t.common_close}</Button>
+              </div>
+            </form>
+          ) : null}
+        </Card>
+      ) : null}
     </div>
   );
 }

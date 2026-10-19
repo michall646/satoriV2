@@ -208,6 +208,11 @@ test('integrity: similarity, timeline, appeals + exam schema (S2-5, S2-6)', asyn
   const vDenied = await api(`/api/contests/${cid}/exam/violations`, {}, janTok);
   assert.equal(vDenied.status, 403, 'student cannot read violation log');
 
+  // F3: clear the exam network window before the submit checks below. The schema
+  // assertions above already proved ipAllow/timeWindow are stored canonically.
+  const cleared = await api(`/api/contests/${cid}/exam`, { method: 'PATCH', ...json({ settings: { fullscreen: false, pasteBlock: false, shuffle: false, ipAllow: '', timeWindow: '' } }) }, teacherTok);
+  assert.equal(cleared.status, 200);
+
   const pid = await mkProblem(cid, 'S', FAST_LIMITS);
   await addCase(pid, '2 3\n', '5\n');
   const s1 = await submit(janTok, pid, 'sol.cpp', SUM_CODE, cid);

@@ -9,6 +9,10 @@ import { useManage } from '../../../../../components/manage/context';
 
 export default function ManageIntegrityPage({ params }) {
   const t = STR[getLang()];
+  const lang = getLang() === 'pl' ? 'pl' : 'en';
+  const vtxt = lang === 'pl'
+    ? { log: 'Rejestr naruszeń', type: 'Typ', detail: 'Szczegóły' }
+    : { log: 'Violation log', type: 'Type', detail: 'Detail' };
   const { contest } = useManage();
   const [pairs, setPairs] = useState(null);
   const [threshold, setThreshold] = useState(0.6);
@@ -28,7 +32,7 @@ export default function ManageIntegrityPage({ params }) {
     api(`/api/contests/${params.id}/integrity/timeline`).then((d) => setFlags(d.flags || [])).catch(() => setFlags([]));
     api(`/api/contests/${params.id}/audit`).then((d) => setAudit(d.items || [])).catch(() => setAudit([]));
     api(`/api/contests/${params.id}/exam`).then((d) => setExam((prev) => ({ ...prev, ...(d.settings || d) }))).catch(() => { });
-    api(`/api/contests/${params.id}/exam/violations`).then((d) => setViolations(d.count ?? (d.items || []).length)).catch(() => setViolations(null));
+    api(`/api/contests/${params.id}/exam/violations`, { noCache: true }).then((d) => setViolations(d.items || [])).catch(() => setViolations(null));
   }, [params.id, threshold]);
 
   const shown = useMemo(
@@ -115,7 +119,7 @@ export default function ManageIntegrityPage({ params }) {
         </div>
       </PageSection>
 
-      <PageSection title={t.integrity_exam_controls} actions={violations != null ? <span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{violations} {t.integrity_violations}</span> : null}>
+      <PageSection title={t.integrity_exam_controls}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           <label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={!!exam.fullscreen} onChange={(e) => setExam({ ...exam, fullscreen: e.target.checked })} /> {t.exam_fullscreen}</label>
           <label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={!!exam.pasteBlock} onChange={(e) => setExam({ ...exam, pasteBlock: e.target.checked })} /> {t.exam_paste_block}</label>
@@ -126,6 +130,22 @@ export default function ManageIntegrityPage({ params }) {
           <Input label={t.integrity_exam_time_label} value={exam.timeWindow || ''} onChange={(e) => setExam({ ...exam, timeWindow: e.target.value })} placeholder={t.integrity_exam_time_hint} />
         </div>
         <Button variant="secondary" className="mt-3" onClick={saveExam}>{t.integrity_save_exam}</Button>
+      </PageSection>
+
+      <PageSection
+        title={vtxt.log}
+        actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{(violations || []).length} {t.integrity_violations}</span>}
+      >
+        <Table
+          stickyHeader
+          columns={[
+            { key: 'at', label: t.integrity_when, render: (v) => <span className="type-mono">{v.at ? new Date(v.at).toLocaleString() : '—'}</span> },
+            { key: 'who', label: t.integrity_who, render: (v) => <span className="type-mono">{v.who || '?'}</span> },
+            { key: 'type', label: vtxt.type, render: (v) => <Badge tone="warn">{v.type || '—'}</Badge> },
+            { key: 'detail', label: vtxt.detail, fill: true, render: (v) => <span className="text-xs">{v.detail || '—'}{v.ip ? ` · ${v.ip}` : ''}</span> },
+          ]}
+          rows={(violations || []).map((v, i) => ({ ...v, key: v.id ?? i }))}
+        />
       </PageSection>
 
       <PageSection title={t.manage_audit} actions={<Input value={auditQ} onChange={(e) => setAuditQ(e.target.value)} placeholder={t.integrity_filter} className="!w-56" aria-label={t.integrity_filter} />}>

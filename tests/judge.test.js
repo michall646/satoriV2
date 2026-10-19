@@ -33,6 +33,11 @@ test('similarity flags near-copies (positive)', () => {
 });
 
 test('similarity ignores distinct (negative)', () => {
-  const g = similarityGraph([{ id: 1, code: 'aaa bbb ccc ddd eee fff ggg' }, { id: 2, code: 'zzz yyy xxx www vvv uuu ttt' }]);
+  const a = 'int main(){int s=0;for(int i=1;i<=5;i++)s+=i;return s;}';
+  const b = '#include <vector>\nvoid f(){std::vector<int> v;v.push_back(1);}';
+  const g = similarityGraph([
+    { id: 1, userId: 1, problemId: 1, code: a },
+    { id: 2, userId: 2, problemId: 1, code: b },
+  ]);
   assert.equal(g.length, 0);
 });

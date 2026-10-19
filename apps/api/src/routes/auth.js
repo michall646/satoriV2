@@ -3,7 +3,7 @@
 const { store } = require('../lib/store');
 const { hashPassword, verifyPassword, needsRehash, signJwt, verifyJwt } = require('../lib/crypto');
 const { validateLogin, validateEmail } = require('../lib/validators');
-const { send, readBody, noteLoginFail, loginBlocked, clearLoginFails } = require('../lib/http');
+const { send, readBody, noteLoginFail, loginBlocked, clearLoginFails, registerRate, throttleResponse } = require('../lib/http');
 const { needAuth, tokenClaims, audit } = require('../lib/authz');
 const { mySessions, myTeams } = require('../lib/contestAccess');
 
@@ -11,6 +11,8 @@ async function handle(req, res, url, p, m) {
   const u = url;
   // auth
   if (p === '/api/auth/register' && m === 'POST') {
+    const limited = registerRate(req);
+    if (limited.limited) return throttleResponse(res, limited, 'Too many registrations.', 'Try again later.');
     const b = await readBody(req);
     const vl = validateLogin(b.login);
     if (!vl.ok) return send(res, 422, vl);

@@ -38,6 +38,8 @@ async function handler(req, res) {
 const server = http.createServer(handler);
 function autoSeedIfEmpty() {
   if (store.all('contests').length > 0) return;
+  // A7: never seed known demo passwords in production unless explicitly requested.
+  if (String(process.env.NODE_ENV || '').toLowerCase() === 'production' && process.env.SATORI_DEMO_SEED !== '1') return;
   try {
     require('./seed').main();
     console.log('Auto-seeded demo data (Playground 251519, Rust 8677128, UZI 10193118).');
@@ -54,4 +56,4 @@ if (require.main === module) {
   autoSeedIfEmpty();
   server.listen(PORT, () => console.log(`Satori V2 API on http://localhost:${PORT} (DATA_DIR=${DATA_DIR})`));
 }
-module.exports = { server, handler };
+module.exports = { server, handler, autoSeedIfEmpty };

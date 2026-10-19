@@ -1,7 +1,7 @@
 // Shared data hooks: auth-aware fetch + SSE subscribe. Guard clauses, no nesting.
 'use client';
 import { useEffect, useState } from 'react';
-import { api, API } from '../lib/client';
+import { api, API, setApiAuth, clearApiAuth } from '../lib/client';
 
 export function useApi(path) {
   const [data, setData] = useState(null);
@@ -51,9 +51,11 @@ export function getToken() {
 export function setTokens(token, refresh) {
   localStorage.setItem('SATORI_TOKEN', token);
   if (refresh) localStorage.setItem('SATORI_REFRESH', refresh);
+  setApiAuth(token, refresh);
 }
 
 export function clearTokens() {
   localStorage.removeItem('SATORI_TOKEN');
   localStorage.removeItem('SATORI_REFRESH');
+  clearApiAuth();
 }

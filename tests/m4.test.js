@@ -73,7 +73,9 @@ test('member roles: grant teacher/jury via POST (S2-9)', async () => {
   assert.equal(grant.status, 201);
   assert.equal(grant.body.role, 'teacher');
   const again = await api(`/api/contests/${cid}/members`, { method: 'POST', ...json({ login: 'jan_kowalski', role: 'jury' }) }, teacherTok);
-  assert.equal(again.status, 200, 'idempotent for existing admin');
+  assert.equal(again.status, 201, 'role change teacher -> jury');
+  const same = await api(`/api/contests/${cid}/members`, { method: 'POST', ...json({ login: 'jan_kowalski', role: 'jury' }) }, teacherTok);
+  assert.equal(same.status, 200, 'idempotent for the same role');
 
   const list = await api(`/api/contests/${cid}/members`, {}, teacherTok);
   assert.ok(list.body.members.some((m) => m.login === 'jan_kowalski'), 'granted member visible');

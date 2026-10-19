@@ -192,7 +192,7 @@ test('LABS board total equals /grade total (S1-3)', async () => {
   const row = board.body.rows.find((x) => x.contestantId === `u:${studentId}`);
   assert.ok(row, 'jan on the board');
   assert.equal(row.total, 66.7, 'weighted: (100*2 + 0*1) / 3');
-  assert.equal(row.grade, 3.5);
+  assert.equal(row.grade, 3, 'default 90/75/50 grade scale');
 
   const grade = await api(`/api/contests/${cid}/grade?user=${studentId}`, {}, teacherTok);
   assert.equal(grade.status, 200);

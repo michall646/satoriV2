@@ -1,13 +1,47 @@
 // Satori V2 — contest lifecycle, members, teams, problems, ranking, and deadlines.
 'use strict';
 const { store } = require('../lib/store');
-const { send, sendText, readBody, rateLimited } = require('../lib/http');
-const { authUser, needAuth, forbid, audit, contestRole, canManageContest, sharesTeam } = require('../lib/authz');
-const { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, buildRanking, csvCell, icsText } = require('../lib/contestAccess');
+const { send, sendText, readBody } = require('../lib/http');
+const {
+  authUser, needAuth, forbid, audit, contestRole, memberRole, canManageContest,
+  sharesTeam, boardModeOf, isMyContestantRow, isTeacherRow, teacherIds, canReadContest,
+} = require('../lib/authz');
+const { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, buildRanking, csvCell, icsText, normalizeExam } = require('../lib/contestAccess');
+const { normalizeContestTime, resolveContestEnd } = require('../lib/contestTime');
 const { isAccepted } = require('../lib/ranking');
+const comms = require('./comms');
+
+const LIVE_INTERVAL_MS = Number(process.env.SATORI_LIVE_INTERVAL_MS || 15000);
+
+// A11: public contests never expose member/admin IDs or exam IP/time settings.
+function publicContestView(c) {
+  const { members, pending, admins, settings, ...rest } = c;
+  const safeSettings = { ...(settings || {}) };
+  delete safeSettings.exam;
+  delete safeSettings.ips;
+  delete safeSettings.tokens;
+  return { ...rest, settings: safeSettings, memberCount: (members || []).length };
+}
+function contestView(c, me) {
+  return canManageContest(me, c) ? c : publicContestView(c);
+}
+// A10/A12: hide rows the board mode forbids and never rank teachers.
+function filterBoard(c, me, body) {
+  const mode = boardModeOf(c);
+  let rows = (body && body.rows) || [];
+  if (mode === 'me-only' && !canManageContest(me, c)) rows = rows.filter((r) => isMyContestantRow(r, c, me));
+  rows = rows.filter((r) => !isTeacherRow(r, c));
+  const meRow = me ? rows.find((r) => String(r.contestantId) === `u:${me.id}` || String(r.name) === String(me.login)) : null;
+  const meOut = meRow ? { rank: meRow.rank, name: meRow.name, total: meRow.total ?? meRow.points ?? meRow.solved ?? null } : null;
+  return { ...body, rows, me: meOut };
+}
 
 async function handle(req, res, url, p, m) {
   const u = url;
+  // Communications were extracted to routes/comms.js; delegate before contest routes.
+  if (/^\/api\/contests\/\d+\/(clarifications|news|subpages)(\/|$)/.test(p)) {
+    return comms.handle(req, res, url, p, m);
+  }
   // contests list/create
   if (p === '/api/contests' && m === 'GET') {
     const me = authUser(req);
@@ -23,17 +57,19 @@ async function handle(req, res, url, p, m) {
     if (me && role === 'pending') items = items.filter((c) => has(c.pending, me.id));
     if (me && role === 'managed') items = items.filter((c) => has(c.admins, me.id));
     if (me && role === 'other') items = items.filter((c) => !has(c.members, me.id) && !has(c.pending, me.id));
-    return send(res, 200, { items, total: items.length });
+    return send(res, 200, { items: items.map((c) => contestView(c, me)), total: items.length });
   }
   if (p === '/api/contests' && m === 'POST') {
     const me = needAuth(req, res);
     if (!me) return true;
     const b = await readBody(req);
     if (!b.name) return send(res, 422, { error: { code: 'NAME', message: 'Name required.', hint: 'e.g. UZI, 2026.' } });
+    const time = normalizeContestTime(b);
     const c = store.insert('contests', {
       name: b.name, description: b.description || '', mode: b.mode || 'ICPC',
       lifecycle: 'draft', registration: b.registration || 'approval', archived: false,
-      startAt: b.startAt || null, endAt: b.endAt || null, freezeAt: b.freezeAt || null,
+      startAt: time.startAt || null, endAt: time.endAt || null, freezeAt: time.freezeAt || null,
+      scoreboardMode: b.scoreboardMode || null, teamMode: Boolean(b.teamMode),
       settings: b.settings || { penaltyMin: 20, verdictVisibility: 'all', allowSampleRun: true, deadlinePolicy: { enabled: false, lateMode: 'soft', penaltyKind: 'perDay', penaltyValue: 5, graceMin: 0 } },
       members: [], pending: [], admins: [me.id], template: b.template || null,
     });
@@ -42,7 +78,7 @@ async function handle(req, res, url, p, m) {
   }
 
   // contest sub-routes
-  let mt = p.match(/^\/api\/contests\/(\d+)\/(apply|members|members\/approve|members\/csv|duplicate|teams|problems|rankings\/live|ranking|ranking\.csv|grade|grade\.ics|deadlines\/bulk-extend|audit|clarifications|news|subpages)$/);
+  let mt = p.match(/^\/api\/contests\/(\d+)\/(apply|members|members\/approve|members\/csv|duplicate|teams|problems|rankings\/live|ranking|ranking\.csv|grade|grade\.ics|deadlines\/bulk-extend|audit)$/);
   if (mt && (m === 'GET' || m === 'POST')) {
     const cid = mt[1];
     const act = mt[2];
@@ -69,8 +105,8 @@ async function handle(req, res, url, p, m) {
       if (!me) return true;
       const role = contestRole(c, me.id);
       if (!['contest_admin', 'superadmin'].includes(role)) return send(res, 403, { error: { code: 'FORBIDDEN', message: 'Admins only.', hint: 'Ask contest admin.' } });
-      const users = (c.members || []).map((id) => { const x = store.get('users', id); return x ? { id: x.id, login: x.login } : { id }; });
-      const pending = (c.pending || []).map((id) => { const x = store.get('users', id); return x ? { id: x.id, login: x.login } : { id }; });
+      const users = (c.members || []).map((id) => { const x = store.get('users', id); return x ? { id: x.id, login: x.login, role: memberRole(c, id) } : { id, role: memberRole(c, id) }; });
+      const pending = (c.pending || []).map((id) => { const x = store.get('users', id); return x ? { id: x.id, login: x.login, role: 'pending' } : { id, role: 'pending' }; });
       return send(res, 200, { members: users, pending });
     }
     if (act === 'members' && m === 'POST') {
@@ -85,20 +121,22 @@ async function handle(req, res, url, p, m) {
       if (!['participant', 'teacher', 'jury'].includes(wanted)) return send(res, 422, { error: { code: 'ROLE', message: 'role must be participant|teacher|jury.', hint: '' } });
       const u = store.query('users', (x) => x.login === login)[0];
       if (!u) return send(res, 404, { error: { code: 'NO_USER', message: `No user "${login}".`, hint: 'They must register first.' } });
+      const roles = { ...(c.roles || {}), [String(u.id)]: wanted };
       if (wanted === 'participant') {
-        if ((c.members || []).map(String).includes(String(u.id))) return send(res, 200, { ok: true, already: true, role: wanted, userId: u.id });
-        store.update('contests', c.id, {
-          members: [...(c.members || []), u.id],
-          pending: (c.pending || []).filter((x) => String(x) !== String(u.id)),
-        });
+        const members = (c.members || []).map(String).includes(String(u.id)) ? (c.members || []) : [...(c.members || []), u.id];
+        const admins = (c.admins || []).filter((x) => String(x) !== String(u.id));
+        const same = (c.members || []).map(String).includes(String(u.id)) && !(c.admins || []).map(String).includes(String(u.id));
+        store.update('contests', c.id, { members, admins, roles, pending: (c.pending || []).filter((x) => String(x) !== String(u.id)) });
+        if (same && memberRole(c, u.id) === 'participant') return send(res, 200, { ok: true, already: true, role: wanted, userId: u.id });
         audit(me.id, 'contest.member.add', `contest:${c.id}`, { login, role: wanted });
         return send(res, 201, { ok: true, role: wanted, userId: u.id });
       }
-      if ((c.admins || []).map(String).includes(String(u.id))) return send(res, 200, { ok: true, already: true, role: wanted, userId: u.id });
+      if ((c.admins || []).map(String).includes(String(u.id)) && memberRole(c, u.id) === wanted) return send(res, 200, { ok: true, already: true, role: wanted, userId: u.id });
       store.update('contests', c.id, {
-        admins: [...(c.admins || []), u.id],
+        admins: [...(c.admins || []).filter((x) => String(x) !== String(u.id)), u.id],
         members: [...(c.members || []).filter((x) => String(x) !== String(u.id)), u.id],
         pending: (c.pending || []).filter((x) => String(x) !== String(u.id)),
+        roles,
       });
       audit(me.id, 'contest.admin.grant', `contest:${c.id}`, { login, role: wanted });
       return send(res, 201, { ok: true, role: wanted, userId: u.id });
@@ -192,7 +230,8 @@ async function handle(req, res, url, p, m) {
       if (!me) return true;
       const b = await readBody(req);
       if (!b.name) return send(res, 422, { error: { code: 'NAME', message: 'Team name required.', hint: '' } });
-      const tm = store.insert('teams', { name: b.name, contestId: c.id, memberIds: b.memberIds || [me.id], loginIdentity: b.loginIdentity || b.name, scoreboardName: b.name });
+      const teamMembers = b.members || b.memberIds || [me.id];
+      const tm = store.insert('teams', { name: b.name, contestId: c.id, members: teamMembers, memberIds: teamMembers, loginIdentity: b.loginIdentity || b.name, scoreboardName: b.name });
       return send(res, 201, tm);
     }
     if (act === 'problems' && m === 'GET') {
@@ -200,6 +239,8 @@ async function handle(req, res, url, p, m) {
       const tag = u.searchParams.get('tag') || '';
       const statusF = u.searchParams.get('status') || 'all';
       const me = authUser(req);
+      // A8/D4: private and exam contests are not readable by non-members.
+      if (!canReadContest(c, me)) return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
       const sets = store.query('problemSets', (x) => String(x.contestId) === String(c.id)).sort((a, b) => (a.order || 0) - (b.order || 0));
       let probs = store.query('problems', (x) => String(x.contestId) === String(c.id));
       const canManage = canManageContest(me, c);
@@ -207,14 +248,17 @@ async function handle(req, res, url, p, m) {
       if (q) probs = probs.filter((x) => (x.code + ' ' + x.name).toLowerCase().includes(q));
       if (tag) probs = probs.filter((x) => (x.tags || []).includes(tag));
       // solvesPct: unique accepted solvers / contest members (real difficulty signal)
+      // A12: teachers are not contestants — exclude their submits and the denominator.
+      const teachers = teacherIds(c);
       const acceptedBy = new Map();
       for (const s of store.query('submits', (x) => String(x.contestId) === String(c.id) && !x.sampleOnly)) {
         if (!isAccepted(s.status)) continue;
+        if (teachers.has(String(s.userId))) continue;
         const k = String(s.problemId);
         if (!acceptedBy.has(k)) acceptedBy.set(k, new Set());
         acceptedBy.get(k).add(String(s.userId));
       }
-      const memberDenom = Math.max(1, (c.members || []).length);
+      const memberDenom = Math.max(1, (c.members || []).filter((id) => !teachers.has(String(id))).length);
       const setById = new Map(sets.map((x) => [String(x.id), x.name]));
       // inline verdict chip + score per problem for caller
       const items = probs.map((x) => {
@@ -226,7 +270,7 @@ async function handle(req, res, url, p, m) {
           tries = subs.length;
           for (const s of subs) {
             score = Math.max(score, Number(s.points || 0));
-            if (isAccepted(s.status)) { best = s.status; break; }
+            if (!best && isAccepted(s.status)) best = s.status;
           }
           if (!best && subs.length) best = subs[subs.length - 1].status;
         }
@@ -241,9 +285,19 @@ async function handle(req, res, url, p, m) {
         };
       });
       const dl = contestDeadlines(c);
-      if (me && statusF === 'solved') return send(res, 200, { sets, items: items.filter((x) => x._best && isAccepted(x._best)), deadlinePolicy: dl.policy });
-      if (me && statusF === 'todo') return send(res, 200, { sets, items: items.filter((x) => !x._best || !isAccepted(x._best)), deadlinePolicy: dl.policy });
-      return send(res, 200, { sets, items, deadlinePolicy: dl.policy });
+      const exam = normalizeExam(c);
+      const shuffled = Boolean(!canManage && me && exam.shuffle);
+      if (shuffled) {
+        const hash = (s) => {
+          let h = 2166136261;
+          for (let i = 0; i < s.length; i += 1) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+          return h >>> 0;
+        };
+        items.sort((a, b) => hash(`${c.id}:${me.id}:${a.id}`) - hash(`${c.id}:${me.id}:${b.id}`));
+      }
+      if (me && statusF === 'solved') return send(res, 200, { sets, items: items.filter((x) => x._best && isAccepted(x._best)), deadlinePolicy: dl.policy, shuffle: shuffled });
+      if (me && statusF === 'todo') return send(res, 200, { sets, items: items.filter((x) => !x._best || !isAccepted(x._best)), deadlinePolicy: dl.policy, shuffle: shuffled });
+      return send(res, 200, { sets, items, deadlinePolicy: dl.policy, shuffle: shuffled });
     }
     if (act === 'problems' && m === 'POST') {
       const me = needAuth(req, res);
@@ -265,29 +319,42 @@ async function handle(req, res, url, p, m) {
     }
     if (act === 'rankings/live' && m === 'GET') {
       const me = authUser(req);
-      const boardMode = ((c.settings || {}).board || {}).mode || 'everyone';
-      if (boardMode === 'hidden' && !canManageContest(me, c)) {
+      if (boardModeOf(c) === 'hidden' && !canManageContest(me, c)) {
         return send(res, 403, { error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.', hint: 'It becomes visible after the contest.' } });
       }
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' });
+      let iv = null;
       const snap = () => {
         try {
-          const body = buildRanking(c, me);
-          res.write(`data: ${JSON.stringify({ at: Date.now(), rows: body.rows, problems: body.problems, mode: body.mode, freezeAt: body.freezeAt, unfreezeAt: body.unfreezeAt, me: body.me })}\n\n`);
+          // Re-read on every tick: a mid-stream hide/me-only change must apply.
+          const cur = store.get('contests', c.id) || c;
+          if (boardModeOf(cur) === 'hidden' && !canManageContest(me, cur)) {
+            res.write(`data: ${JSON.stringify({ error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.' } })}\n\n`);
+            res.end();
+            clearInterval(iv);
+            return;
+          }
+          const body = filterBoard(cur, me, buildRanking(cur, me, {
+            mode: u.searchParams.get('mode'),
+            unfrozen: u.searchParams.get('unfrozen') === '1',
+          }));
+          res.write(`data: ${JSON.stringify({ at: Date.now(), rows: body.rows, problems: body.problems, mode: body.mode, freezeAt: body.freezeAt, unfreezeAt: body.unfreezeAt, frozen: body.frozen, me: body.me })}\n\n`);
         } catch { /* client gone */ }
       };
       snap();
-      const iv = setInterval(snap, 15000);
+      iv = setInterval(snap, LIVE_INTERVAL_MS);
       req.on('close', () => clearInterval(iv));
       return true;
     }
     if ((act === 'ranking' || act === 'ranking.csv') && m === 'GET') {
       const me = authUser(req);
-      const boardMode = ((c.settings || {}).board || {}).mode || 'everyone';
-      if (boardMode === 'hidden' && !canManageContest(me, c)) {
+      if (boardModeOf(c) === 'hidden' && !canManageContest(me, c)) {
         return send(res, 403, { error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.', hint: 'It becomes visible after the contest.' } });
       }
-      const body = buildRanking(c, me);
+      const body = filterBoard(c, me, buildRanking(c, me, {
+        mode: u.searchParams.get('mode'),
+        unfrozen: u.searchParams.get('unfrozen') === '1',
+      }));
       if (act === 'ranking') return send(res, 200, body);
       const cellText = (cell) => (cell == null ? '' : typeof cell === 'object' ? String(cell.text ?? cell.points ?? '') : String(cell));
       const head = ['rank', 'contestant', ...body.problems.map((p2) => p2.code || `P${p2.id}`), 'total'];
@@ -324,12 +391,13 @@ async function handle(req, res, url, p, m) {
         lines.push('END:VEVENT');
       };
       for (const pr of probs) {
-        const at = dl.deadlines[pr.id] || pr.deadlineAt || ((c.settings || {}).defaultDeadline) || c.endAt;
+        const at = dl.deadlines[pr.id] || pr.deadlineAt || ((c.settings || {}).defaultDeadline) || resolveContestEnd(c);
         if (!at) continue;
         ev(`problem-${pr.id}`, at, `${c.name} — ${pr.code} ${pr.name} due`, dl.policy.enabled ? `Late policy ${dl.policy.lateMode} ${dl.policy.penaltyKind} ${dl.policy.penaltyValue}` : 'Default deadline');
       }
       if (c.startAt) ev('contest-start', c.startAt, `${c.name} — start`, '');
-      if (c.endAt) ev('contest-end', c.endAt, `${c.name} — end`, '');
+      const contestEnd = resolveContestEnd(c);
+      if (contestEnd) ev('contest-end', contestEnd, `${c.name} — end`, '');
       if (c.freezeAt) ev('contest-freeze', c.freezeAt, `${c.name} — scoreboard freeze`, '');
       lines.push('END:VCALENDAR');
       return sendText(res, 200, lines.join('\r\n') + '\r\n', 'text/calendar');
@@ -348,7 +416,8 @@ async function handle(req, res, url, p, m) {
       if (settings.defaultDeadline) settings.defaultDeadline = shift(settings.defaultDeadline);
       const patch = { settings };
       if (c.startAt) patch.startAt = shift(c.startAt);
-      if (c.endAt) patch.endAt = shift(c.endAt);
+      const existingEnd = resolveContestEnd(c);
+      if (existingEnd) patch.endAt = shift(existingEnd);
       if (c.freezeAt) patch.freezeAt = shift(c.freezeAt);
       store.update('contests', c.id, patch);
       let shifted = 0;
@@ -370,23 +439,9 @@ async function handle(req, res, url, p, m) {
       if (!me) return true;
       return send(res, 200, { items: store.query('audit', (a) => String(a.target).includes(String(c.id))).slice(-200) });
     }
-    if ((act === 'clarifications' || act === 'news' || act === 'subpages') && m === 'GET') {
-      const col = act === 'clarifications' ? 'clarifications' : act;
-      return send(res, 200, { items: store.query(col, (x) => String(x.contestId) === String(c.id)) });
-    }
-    if ((act === 'clarifications' || act === 'news' || act === 'subpages') && m === 'POST') {
-      const me = needAuth(req, res);
-      if (!me) return true;
-      if (act !== 'clarifications' && !canManageContest(me, c)) return forbid(res);
-      if (rateLimited(`${act}:${me.id}`, act === 'clarifications' ? 5 : 20, 60000)) return send(res, 429, { error: { code: 'THROTTLE', message: 'Too many posts.', hint: 'Slow down and retry in a minute.' } });
-      const b = await readBody(req);
-      const col = act === 'clarifications' ? 'clarifications' : act;
-      const row = store.insert(col, { contestId: c.id, authorId: me.id, ...b, createdAt: new Date().toISOString() });
-      return send(res, 201, row);
-    }
   }
 
-  // contest-scoped members / news / webhooks management
+  // contest-scoped member management
   mt = p.match(/^\/api\/contests\/(\d+)\/members\/(\d+)$/);
   if (mt && m === 'DELETE') {
     const c = store.get('contests', mt[1]);
@@ -395,24 +450,15 @@ async function handle(req, res, url, p, m) {
     if (!me) return true;
     if (!canManageContest(me, c)) return forbid(res);
     const uid = mt[2];
+    const wasAdmin = (c.admins || []).map(String).includes(String(uid));
     const members = (c.members || []).filter((x) => String(x) !== String(uid));
     const pending = (c.pending || []).filter((x) => String(x) !== String(uid));
-    store.update('contests', c.id, { members, pending });
-    audit(me.id, 'contest.member.remove', `contest:${c.id}`, { uid });
-    return send(res, 200, { ok: true, members: members.length });
-  }
-  mt = p.match(/^\/api\/contests\/(\d+)\/news\/(\d+)$/);
-  if (mt && m === 'DELETE') {
-    const c = store.get('contests', mt[1]);
-    if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: '' } });
-    const me = needAuth(req, res);
-    if (!me) return true;
-    if (!canManageContest(me, c)) return forbid(res);
-    const row = store.get('news', mt[2]);
-    if (!row || String(row.contestId) !== String(c.id)) return send(res, 404, { error: { code: 'NO_NEWS', message: 'Announcement not found.', hint: '' } });
-    store.remove('news', row.id);
-    audit(me.id, 'contest.news.delete', `contest:${c.id}`, { newsId: row.id });
-    return send(res, 200, { ok: true, deleted: true });
+    const admins = (c.admins || []).filter((x) => String(x) !== String(uid));
+    const roles = { ...(c.roles || {}) };
+    delete roles[String(uid)];
+    store.update('contests', c.id, { members, pending, admins, roles });
+    audit(me.id, 'contest.member.remove', `contest:${c.id}`, { uid, revokedAdmin: wasAdmin });
+    return send(res, 200, { ok: true, members: members.length, revokedAdmin: wasAdmin });
   }
 
   // single contest get/patch/delete (DELETE: archive-first, second call purges)
@@ -420,7 +466,7 @@ async function handle(req, res, url, p, m) {
   if (mt && (m === 'GET' || m === 'PATCH' || m === 'DELETE')) {
     const c = store.get('contests', mt[1]);
     if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Not found.', hint: '' } });
-    if (m === 'GET') return send(res, 200, c);
+    if (m === 'GET') return send(res, 200, contestView(c, authUser(req)));
     const me = needAuth(req, res);
     if (!me) return true;
     if (m === 'DELETE') {
@@ -449,7 +495,7 @@ async function handle(req, res, url, p, m) {
     const role = contestRole(c, me.id);
     if (!['contest_admin', 'superadmin'].includes(role)) return send(res, 403, { error: { code: 'FORBIDDEN', message: 'Admins only.', hint: '' } });
     const b = await readBody(req);
-    const out = store.update('contests', c.id, b);
+    const out = store.update('contests', c.id, normalizeContestTime(b));
     audit(me.id, 'contest.update', `contest:${c.id}`, b);
     return send(res, 200, out);
   }
