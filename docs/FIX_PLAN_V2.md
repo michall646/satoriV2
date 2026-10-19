@@ -420,12 +420,21 @@ A release gate is done only when:
 
 ## 12. Status board
 
-| Gate | Status | Notes |
+| Item | Status | Notes |
 |------|--------|-------|
-| Seams | TODO | serial |
-| Gate A | TODO | security/time/scoring truth |
-| Gate B | TODO | authoring/grade/comms/exam |
-| Gate C | TODO | async judge/integrity/analytics |
-| Gate D | TODO | auth/org/PWA/CLI/docs |
+| S0-00 git baseline | DONE | `b23e26f`, `.openchamber/.playwright-mcp/.tmp` ignored |
+| S0-01 API route split | IN PROGRESS | background agent |
+| S0-02 web client split | DONE | `lib/api.js`, `lib/i18n.js`, `lib/verdict.js`, facade `lib/client.js`; commit `3c49c6e` |
+| S0-03 test harness | DONE | `tests/helpers.js`, `tests/harness.test.js`; dynamic port |
+| S0-04 ApiError contract | DONE | `ApiError` keeps status/code/message/hint/field; `tests/web-api.test.js` |
+| S0-05 migration script | DONE | `scripts/migrate-v2.js`; dry-run + `--apply` + backup; tested on temp copy |
+| S0-06 flags / fake toasts | PARTIAL | `lib/flags.js`; bulk PDF + ZIP/PDF imports + request-access fakes removed/gated |
+| S0-07 gate tests | TODO | lane tests land with each workstream |
+| Gate A | IN PROGRESS | C1–C3/C8, B3, E1/E4/E5, G3 running in parallel |
+| Gate B | TODO | |
+| Gate C | TODO | |
+| Gate D | TODO | |
+
+Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError test, `b503272` import flags, `14a8df3` UI polish.
 
 Update this table as work lands. Do not mark a gate done without the Gate checklist and E2E.
