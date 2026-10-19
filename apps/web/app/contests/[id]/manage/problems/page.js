@@ -117,7 +117,6 @@ export default function ManageProblemsPage({ params }) {
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.mprob_filter_ph} className="!w-56" aria-label={t.mprob_filter_aria} />
         <Segmented options={VIS_OPTIONS.map((o) => ({ value: o.value, label: t[o.key] || o.value }))} value={vis} onChange={setVis} ariaLabel={t.mprob_vis_aria} />
         <span className="text-xs" style={{ color: 'var(--muted)' }}>{shown.length} {t.mprob_shown}</span>
-        <Button variant="secondary" className="ml-auto" onClick={() => toast(t.mprob_bulk_pdf_queued, 'success')}>{t.mprob_bulk_pdf}</Button>
       </div>
 
       {shown.length ? (

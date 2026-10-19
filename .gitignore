@@ -1,6 +1,7 @@
 node_modules/
 .next/
 apps/api/data/*.json
+apps/api/data-backup-*/
 !.gitkeep
 .openchamber/
 .playwright-mcp/

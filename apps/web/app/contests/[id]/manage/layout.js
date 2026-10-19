@@ -4,8 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, STR, getLang } from '../../../../lib/client';
-import { Button, EmptyState, ErrorState, Skeleton } from '../../../../components/ui';
-import { toast } from '../../../../components/ui/Toast';
+import { EmptyState, ErrorState, Skeleton } from '../../../../components/ui';
 import ManageNav from '../../../../components/manage/ManageNav';
 import { ManageContext } from '../../../../components/manage/context';
 
@@ -54,7 +53,6 @@ export default function ManageLayout({ children, params }) {
         <EmptyState
           icon="🔒"
           line={t.manage_forbidden}
-          action={<Button variant="secondary" onClick={() => toast(t.manage_access_sent)}>{t.manage_request_access}</Button>}
         />
       </div>
     );

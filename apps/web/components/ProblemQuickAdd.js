@@ -75,15 +75,15 @@ export default function ProblemQuickAdd({ contestId, items, onDone }) {
 
       {mode === 'zip' ? (
         <div className="mt-2 text-sm">
-          <label className="text-sm">Polygon ZIP <input type="file" accept=".zip" className="block mt-1" onChange={() => toast(t.quick_zip_queued)} /></label>
-          <p className="text-xs text-muted mt-1">{t.quick_zip_desc}</p>
+          <label className="text-sm">Polygon ZIP <input type="file" accept=".zip" disabled className="block mt-1" /></label>
+          <p className="text-xs text-muted mt-1">Not available yet — server-side unzip/import is still being built. Use Blank or Clone for now.</p>
         </div>
       ) : null}
 
       {mode === 'pdf' ? (
         <div className="mt-2 text-sm">
-          <label className="text-sm">Athina PDFs <input type="file" accept=".pdf" multiple className="block mt-1" onChange={() => toast(t.quick_pdf_queued)} /></label>
-          <p className="text-xs text-muted mt-1">{t.quick_pdf_desc}</p>
+          <label className="text-sm">Athina PDFs <input type="file" accept=".pdf" multiple disabled className="block mt-1" /></label>
+          <p className="text-xs text-muted mt-1">Not available yet — PDF ingestion is still being built. Use Markdown for now.</p>
         </div>
       ) : null}
 
