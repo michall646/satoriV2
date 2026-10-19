@@ -320,6 +320,7 @@ async function handle(req, res, url, p, m) {
         setterId: me.id,
         statementMd: b.statementMd || '', statementHtml: b.statementHtml || '',
         samples: b.samples || [], limits: b.limits || { timeMs: 1000, memoryMb: 256, stackMb: 64, perLang: {} },
+        checker: b.checker || null, checkerLang: b.checkerLang || null, checkerCode: b.checkerCode || null, checkerTolerance: b.checkerTolerance ?? null,
         visibility: b.visibility || 'draft', tags: b.tags || [], difficulty: b.difficulty || 1,
         pdfBadge: b.pdfBadge || 'HTML', version: 1, aliasLetters: {}, deadlineAt: b.deadlineAt || null,
       });

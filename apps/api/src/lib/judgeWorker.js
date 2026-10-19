@@ -2,6 +2,7 @@
 'use strict';
 const { store } = require('./store');
 const J = require('../../../../packages/judge/src/judge');
+const CHECKER = require('../../../../packages/judge/src/checker');
 const { fireWebhooks } = require('../routes/webhooks');
 
 // Fixture triggers are for demo/tests only. Production code must not be able to
@@ -78,16 +79,33 @@ async function judgeOne(s) {
   }
   setStatus({ status: 'TST', compileLog: '' });
   let cases = [];
+  // C7: sample runs use the problem/group checker (D7), never a hardcoded token.
   if (s.sampleOnly) {
     const sm = (problem && Array.isArray(problem.samples)) ? problem.samples : [];
-    cases = sm.length
-      ? sm.map((x) => ({ input: String(x.input ?? ''), expected: String(x.expected ?? x.output ?? ''), checker: 'token', group: { points: 100 } }))
-      : [{ input: '2 3\n', expected: '5\n', checker: 'token', group: { points: 100 } }];
+    cases = sm.map((x) => ({
+      input: String(x.input ?? ''),
+      expected: String(x.expected ?? x.output ?? ''),
+      checker: x.checker,
+      checkerTolerance: x.checkerTolerance,
+      checkerLang: x.checkerLang,
+      checkerCode: x.checkerCode,
+      group: { points: 100 },
+    }));
   } else {
     const groups = store.query('testGroups', (g) => String(g.problemId) === String(s.problemId));
     for (const g of groups) cases.push(...store.query('testCases', (c) => String(c.groupId) === String(g.id)).map((c) => ({ ...c, group: g })));
-    if (cases.length === 0) cases = [{ input: '2 3\n', expected: '5\n', checker: 'token', group: { points: 100 } }];
   }
+  // C7: a real submit with zero cases never reaches the judge (the API rejects
+  // it). The only remaining fallback is the demo fixture, gated by C8.
+  if (cases.length === 0 && DEMO_TRIGGERS) {
+    cases = [{ input: '2 3\n', expected: '5\n', checker: 'token', group: { points: 100 } }];
+  }
+  // C7: sample runs have no group of their own — the problem checker wins, then
+  // the first group's checker, never a hardcoded token.
+  const sampleFirstGroup = store.query('testGroups', (g) => String(g.problemId) === String(s.problemId))
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || Number(a.id) - Number(b.id))[0] || null;
+  const problemHasChecker = Boolean(problem) && ['checker', 'checkerLang', 'checkerCode', 'checkerFile']
+    .some((f) => problem[f] != null && problem[f] !== '');
   const groupCounts = new Map();
   for (const x of cases) {
     const k = x.group && x.group.id != null ? `g:${x.group.id}` : `p:${(x.group && x.group.points) || 100}`;
@@ -110,6 +128,44 @@ async function judgeOne(s) {
   const exec = prepareExec(s, failCE, problem);
   if (exec === false) return;
   if (exec) setStatus({ status: 'TST', compileLog: String(exec.log || '') });
+  if (cases.length === 0) {
+    // No tests to run: refuse to fabricate an accepted result (C7). The API
+    // blocks this for real submits; this is defence in depth for legacy/queued rows.
+    setStatus({
+      status: 'WA', testsTotal: 0, testsDone: 0, perTest: [], perTestFull: s.sampleOnly ? null : [],
+      points: 0, cpuMs: 0, memMb: null, simulated: !exec, judgedAt: new Date().toISOString(),
+    });
+    notify(s, 'WA');
+    if (exec) J.cleanupDir(exec.dir);
+    if (!s.sampleOnly) fireWebhooks('submit.judged', { submitId: s.id, verdict: 'WA', contestId: s.contestId, problemId: s.problemId });
+    return;
+  }
+  // Custom checkers are compiled once per submit/group and then executed per test.
+  const checkerPrograms = new Map();
+  const customChecker = (cfg) => {
+    const key = `${cfg.lang || ''}\u0000${cfg.code}`;
+    if (!checkerPrograms.has(key)) {
+      checkerPrograms.set(key, CHECKER.prepareChecker(cfg.code, cfg.lang, { memoryMb: problem && problem.limits ? problem.limits.memoryMb : undefined }));
+    }
+    return checkerPrograms.get(key);
+  };
+  const evaluate = (tc, got) => {
+    const checkerGroup = s.sampleOnly
+      ? (problemHasChecker ? problem : (sampleFirstGroup || {}))
+      : tc.group;
+    const cfg = CHECKER.resolveChecker(tc, checkerGroup, problem);
+    if (cfg.kind === 'custom') {
+      if (!cfg.code.trim()) return { ok: false, cfg, msg: 'custom checker has no program.' };
+      const desc = customChecker(cfg);
+      if (!desc.ok) return { ok: false, cfg, msg: `checker compile failed: ${CHECKER.firstLine(desc.log) || 'unknown error'}`, checkerError: true };
+      const r = CHECKER.runChecker(desc, { input: tc.input, expected: tc.expected, output: got });
+      return { ok: r.accepted, cfg, msg: r.accepted ? '' : r.message, checkerError: r.status === 'CHECKER_ERROR' };
+    }
+    const ok = cfg.kind === 'float'
+      ? CHECKER.acceptFloat(tc.expected, got, cfg.tolerance)
+      : CHECKER.acceptToken(tc.expected, got);
+    return { ok, cfg, msg: '', checkerError: false };
+  };
   for (let i = 0; i < cases.length; i++) {
     const tc = cases[i];
     setStatus({ status: 'TST', testsTotal: cases.length, testsDone: i });
@@ -146,28 +202,35 @@ async function judgeOne(s) {
         perTest.push({ n: i + 1, verdict: 'RE', timeMs: Math.max(1, run.wallMs), msg });
         continue;
       }
-      const ok = J.checkOutput(tc.checker || 'token', tc.expected, run.stdout);
+      const ev = evaluate(tc, run.stdout);
       const w = caseWeight(tc);
+      const msg = ev.ok ? '' : (ev.msg || `expected ${JSON.stringify(String(tc.expected).slice(0, 40))} got ${JSON.stringify(String(run.stdout).slice(0, 40))}`);
       perTest.push({
-        n: i + 1, verdict: ok ? 'OK' : 'WA', timeMs: Math.max(1, run.wallMs),
-        msg: ok ? '' : `expected ${JSON.stringify(String(tc.expected).slice(0, 40))} got ${JSON.stringify(String(run.stdout).slice(0, 40))}`,
-        group: (tc.group && tc.group.name) || null, points: ok ? Math.round(w * 100) / 100 : 0,
-        expected: ok ? null : String(tc.expected ?? ''), got: ok ? null : String(run.stdout ?? ''),
+        n: i + 1, verdict: ev.ok ? 'OK' : 'WA', timeMs: Math.max(1, run.wallMs),
+        msg,
+        ...(ev.cfg.kind === 'custom' ? { checker: { kind: 'custom', lang: ev.cfg.lang, error: ev.checkerError } } : {}),
+        group: (tc.group && tc.group.name) || null, points: ev.ok ? Math.round(w * 100) / 100 : 0,
+        expected: ev.ok ? null : String(tc.expected ?? ''), got: ev.ok ? null : String(run.stdout ?? ''),
       });
-      if (ok) points += w;
+      if (ev.ok) points += w;
       continue;
     }
     const t0 = Date.now();
     const out = J.simulate(s.code, s.lang, tc.input, { demo: DEMO_TRIGGERS });
-    const ok = J.checkOutput(tc.checker || 'token', tc.expected, out);
+    const ev = evaluate(tc, out);
     const w = caseWeight(tc);
+    const msg = ev.ok ? '' : (ev.msg || `expected ${JSON.stringify(String(tc.expected).slice(0, 40))} got ${JSON.stringify(String(out).slice(0, 40))}`);
     perTest.push({
-      n: i + 1, verdict: ok ? 'OK' : 'WA', timeMs: Math.max(1, Date.now() - t0),
-      msg: ok ? '' : `expected ${JSON.stringify(String(tc.expected).slice(0, 40))} got ${JSON.stringify(String(out).slice(0, 40))}`,
-      group: (tc.group && tc.group.name) || null, points: ok ? Math.round(w * 100) / 100 : 0,
-      expected: ok ? null : String(tc.expected ?? ''), got: ok ? null : String(out ?? ''),
+      n: i + 1, verdict: ev.ok ? 'OK' : 'WA', timeMs: Math.max(1, Date.now() - t0),
+      msg,
+      ...(ev.cfg.kind === 'custom' ? { checker: { kind: 'custom', lang: ev.cfg.lang, error: ev.checkerError } } : {}),
+      group: (tc.group && tc.group.name) || null, points: ev.ok ? Math.round(w * 100) / 100 : 0,
+      expected: ev.ok ? null : String(tc.expected ?? ''), got: ev.ok ? null : String(out ?? ''),
     });
-    if (ok) points += w;
+    if (ev.ok) points += w;
+  }
+  for (const desc of checkerPrograms.values()) {
+    if (desc && desc.dir) J.cleanupDir(desc.dir);
   }
   let verdict = 'OK';
   const firstBad = perTest.find((x) => x.verdict !== 'OK');

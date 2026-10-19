@@ -92,6 +92,12 @@ test('hidden problems and unopened contests block non-admin submits', async () =
   const cid = c.body.id;
   const p1 = await api(`/api/contests/${cid}/problems`, { method: 'POST', ...json({ code: 'A', name: 'Open later', visibility: 'visible' }) }, teacherTok);
   const p2 = await api(`/api/contests/${cid}/problems`, { method: 'POST', ...json({ code: 'B', name: 'Draft', visibility: 'draft' }) }, teacherTok);
+  for (const pid of [p1.body.id, p2.body.id]) {
+    const g = await api(`/api/problems/${pid}/tests`, { method: 'POST', ...json({ group: { name: 'all', points: 100, checker: 'token' } }) }, teacherTok);
+    assert.equal(g.status, 201);
+    const cse = await api(`/api/problems/${pid}/tests`, { method: 'POST', ...json({ case: { groupId: g.body.id, input: '2 3\n', expected: '5\n', checker: 'token' } }) }, teacherTok);
+    assert.equal(cse.status, 201);
+  }
 
   const draft = await api('/api/submits', { method: 'POST', ...json({ contestId: cid, problemId: p1.body.id, filename: 'solution.cpp', code: SUM_CODE }) }, studentTok);
   assert.equal(draft.status, 403);

@@ -108,6 +108,15 @@ async function createSubmit(req, res, preset) {
     return send(res, 403, { error: { code: 'NOT_STARTED', message: 'Contest has not started yet.', hint: `Starts ${contest.startAt}.` } });
   }
   const sampleOnly = Boolean(preset.sampleOnly || b.sampleOnly);
+  // C7: real submissions need real tests. The judge worker also fails closed,
+  // but the API should reject with a clear fix hint before queueing.
+  if (!sampleOnly && process.env.SATORI_DEMO_TRIGGERS !== '1' && pr.demoFixture !== true) {
+    const groups = store.query('testGroups', (g) => String(g.problemId) === String(pr.id));
+    const hasCases = groups.some((g) => store.query('testCases', (c) => String(c.groupId) === String(g.id)).length > 0);
+    if (!hasCases) {
+      return send(res, 409, { error: { code: 'NO_TESTS', message: 'This problem has no test cases.', hint: 'Add at least one test case in the problem editor, then submit.' } });
+    }
+  }
   // A8: endAt blocks real submissions; sample runs and upsolve/playground do not.
   if (contest && !manage && !sampleOnly && contest.endAt && Date.now() > new Date(contest.endAt).getTime() && !allowsAfterEnd(contest)) {
     return send(res, 409, { error: { code: 'ENDED', message: 'Contest has ended.', hint: 'Upsolve in Playground or ask the teacher.' } });

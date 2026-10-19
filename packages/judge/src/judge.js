@@ -1,12 +1,13 @@
 // Satori V2 — judge core (Kolejka-compat).
 // Pipeline: queued -> compiling -> testing t3/12 -> judged.
-// Checkers: token | float(tol) | custom substring. Mirrors kolejka-judge subset.
+// Checkers (D7): token | float(tolerance) | custom program (see checker.js).
 'use strict';
 
 const { LANGUAGES } = require('../../../apps/api/src/lib/validators');
 const CPP = require('./cpp');
 const PY = require('./python');
 const RUNNERS = require('./runners');
+const CHECKER = require('./checker');
 const { runProcess, clampTimeMs } = require('./run');
 
 const QUEUE = []; // submitIds in order
@@ -38,23 +39,13 @@ function queuePosition(submitId) {
   return { position: i + 1, etaSec: (i + 1) * 4 };
 }
 
-function normToken(s) {
-  return String(s ?? '').trim().split(/\s+/).filter(Boolean).join(' ');
-}
-
-function checkOutput(checker, expected, got, tol = 1e-6) {
-  if (checker === 'float') {
-    const a = String(expected).trim().split(/\s+/).map(Number);
-    const b = String(got).trim().split(/\s+/).map(Number);
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) return normToken(expected) === normToken(got);
-      if (Math.abs(a[i] - b[i]) > tol + 1e-9) return false;
-    }
-    return true;
-  }
-  if (checker === 'custom') return String(got).includes(String(expected).trim().split('\n')[0] ?? '');
-  return normToken(expected) === normToken(got);
+// Token / float are decided in-process; a custom checker is a program and is
+// never decided by substring (that old behaviour was a security bug, D7).
+function checkOutput(checker, expected, got, tol) {
+  const spec = CHECKER.parseCheckerSpec(checker);
+  if (spec.kind === 'float') return CHECKER.acceptFloat(expected, got, tol == null ? spec.tolerance : tol);
+  if (spec.kind === 'custom') return false;
+  return CHECKER.acceptToken(expected, got);
 }
 
 // Simulated fallback: only used when the judge host has no toolchain for the
@@ -108,6 +99,10 @@ function languageAvailability() {
 
 module.exports = {
   QUEUE, pushEvent, subscribe, unsubscribe, queuePosition, checkOutput, simulate, LANGUAGE_MATRIX, LANGUAGES, languageAvailability, runProcess, clampTimeMs,
+  parseCheckerSpec: CHECKER.parseCheckerSpec,
+  prepareChecker: CHECKER.prepareChecker,
+  runChecker: CHECKER.runChecker,
+  resolveChecker: CHECKER.resolveChecker,
   hasGcc: CPP.hasGcc, hasGpp: CPP.hasGpp, compileC: CPP.compileC, compileCpp: CPP.compileCpp, runBinary: CPP.runBinary, cleanupDir: CPP.cleanupDir,
   hasPython: PY.hasPython, preparePython: PY.preparePython, runPythonScript: PY.runPythonScript,
   hasJava: RUNNERS.hasJava, compileJava: RUNNERS.compileJava, javaArgs: RUNNERS.javaArgs,
