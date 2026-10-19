@@ -40,6 +40,16 @@ paths:
       tags: [meta]
       summary: Queue length, ETA estimate, language availability, missing toolchains, sandbox note
       security: []
+  /api/metrics:
+    get:
+      tags: [meta]
+      summary: Prometheus text metrics; optional SATORI_METRICS_TOKEN bearer/query gate
+      security: []
+  /api/metrics.json:
+    get:
+      tags: [meta]
+      summary: JSON snapshot of the same counters, gauges and histograms
+      security: []
   /api/languages:
     get:
       tags: [meta]
