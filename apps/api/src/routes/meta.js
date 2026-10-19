@@ -46,6 +46,14 @@ async function handle(req, res, url, p, m) {
   if (p === '/api/openapi.json' && m === 'GET') {
     try {
       const fs = require('node:fs');
+      const f = path.join(__dirname, '..', '..', '..', '..', 'openapi.json');
+      if (fs.existsSync(f)) return sendText(res, 200, fs.readFileSync(f, 'utf8'), 'application/json; charset=utf-8');
+    } catch { /* fallthrough */ }
+    return send(res, 200, openapi());
+  }
+  if (p === '/api/openapi.yaml' && m === 'GET') {
+    try {
+      const fs = require('node:fs');
       const f = path.join(__dirname, '..', '..', '..', '..', 'openapi.yaml');
       if (fs.existsSync(f)) return sendText(res, 200, fs.readFileSync(f, 'utf8'), 'text/yaml; charset=utf-8');
     } catch { /* fallthrough */ }

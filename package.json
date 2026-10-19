@@ -17,6 +17,7 @@
     "clean:web": "node -e \"require('fs').rmSync('apps/web/.next',{recursive:true,force:true})\"",
     "seed": "node apps/api/src/seed.js",
     "migrate:v2": "node scripts/migrate-v2.js",
+    "build:openapi": "node scripts/build-openapi.js",
     "test": "node --test tests/*.test.js",
     "cli": "node apps/cli/bin/satori.js"
   },
