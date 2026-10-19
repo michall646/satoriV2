@@ -2,7 +2,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { api, STR, getLang } from '../../../../../lib/client';
-import { Button, EmptyState, Input, Skeleton, Table } from '../../../../../components/ui';
+import { Button, EmptyState, Input, Modal, Skeleton, Table } from '../../../../../components/ui';
 import { toast } from '../../../../../components/ui/Toast';
 import { PageHeader, PageSection } from '../../../../../components/manage';
 import { useManage } from '../../../../../components/manage/context';
@@ -17,6 +17,12 @@ const LABELS = {
     usosPaste: 'Paste at least one login,usos_id row.', usosImported: 'USOS IDs updated', usosSkipped: 'skipped (not members)',
     extend: 'Extension', extendDays: 'Days', apply: 'Apply', extUntil: 'until', extSaved: 'Extension rows saved',
     badDays: 'Enter days (+/-) for the extension.', extHint: 'Per-student deadline extension in days from the current deadline. Changes are audited.',
+    teamEdit: 'Edit team', teamDelete: 'Delete team', teamInvite: 'Invite', teamInviteBtn: 'Invite',
+    teamInvitePh: 'member login', teamSaved: 'Team updated', teamDeleted: 'Team deleted', teamInvited: 'Member invited',
+    teamInviteRequired: 'Enter a member login.', teamDeleteConfirm: 'Delete this team?', teamIdentityRequired: 'Login identity cannot be empty.',
+    teamName: 'Team name', teamScoreboard: 'Scoreboard name', teamIdentity: 'Login identity',
+    teamNotRanked: 'Team mode is off: teams are stored, but the scoreboard stays individual.',
+    teamEmpty: 'No members yet — invite contest members.', teamCaptain: 'captain',
   },
   pl: {
     membersAll: 'Uczestnicy i kadra', role: 'Rola', usosId: 'ID USOS', demote: 'Zdegraduj', demoted: 'Zdegradowano', unknownId: 'nieznany',
@@ -24,6 +30,12 @@ const LABELS = {
     usosPaste: 'Wklej co najmniej jeden wiersz login,id_usos.', usosImported: 'Zaktualizowano ID USOS', usosSkipped: 'pominięto (nie są członkami)',
     extend: 'Przedłużenie', extendDays: 'Dni', apply: 'Zastosuj', extUntil: 'do', extSaved: 'Zapisano przedłużenia',
     badDays: 'Podaj liczbę dni (+/-) przedłużenia.', extHint: 'Przedłużenie terminu dla studenta w dniach od obecnego terminu. Zmiany trafiają do audytu.',
+    teamEdit: 'Edytuj drużynę', teamDelete: 'Usuń drużynę', teamInvite: 'Zaproś', teamInviteBtn: 'Zaproś',
+    teamInvitePh: 'login członka', teamSaved: 'Zaktualizowano drużynę', teamDeleted: 'Usunięto drużynę', teamInvited: 'Zaproszono członka',
+    teamInviteRequired: 'Podaj login członka.', teamDeleteConfirm: 'Usunąć tę drużynę?', teamIdentityRequired: 'Login drużyny nie może być pusty.',
+    teamName: 'Nazwa drużyny', teamScoreboard: 'Nazwa na tablicy', teamIdentity: 'Login drużyny',
+    teamNotRanked: 'Tryb drużynowy jest wyłączony: drużyny są zapisane, ale tablica pozostaje indywidualna.',
+    teamEmpty: 'Brak członków — zaproś uczestników konkursu.', teamCaptain: 'kapitan',
   },
 };
 
@@ -47,6 +59,9 @@ export default function ManageMembersPage({ params }) {
   const [usosCsv, setUsosCsv] = useState('');
   const [busy, setBusy] = useState(false);
   const [teamName, setTeamName] = useState('');
+  const [editTeam, setEditTeam] = useState(null);
+  const [teamForm, setTeamForm] = useState({ name: '', scoreboardName: '', loginIdentity: '' });
+  const [invites, setInvites] = useState({});
   const [role, setRole] = useState('participant');
   const [roleLogin, setRoleLogin] = useState('');
 
@@ -189,12 +204,74 @@ export default function ManageMembersPage({ params }) {
     if (!teamName.trim()) { toast(t.members_team_required, 'warn'); return; }
     setBusy(true);
     try {
-      await api(`/api/contests/${params.id}/teams`, { method: 'POST', body: JSON.stringify({ name: teamName.trim() }) });
+      // Managers create the shell and invite students; the teacher is not a contestant.
+      await api(`/api/contests/${params.id}/teams`, { method: 'POST', body: JSON.stringify({ name: teamName.trim(), members: [] }) });
       toast(`${t.members_team_created} "${teamName.trim()}".`, 'success');
       setTeamName('');
       await load();
     } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
     finally { setBusy(false); }
+  }
+
+  function openTeamEdit(team) {
+    setEditTeam(team);
+    setTeamForm({
+      name: team.name || '',
+      scoreboardName: team.scoreboardName || '',
+      loginIdentity: team.loginIdentity || '',
+    });
+  }
+
+  async function saveTeam() {
+    if (!editTeam) return;
+    if (!teamForm.name.trim()) { toast(t.members_team_required, 'warn'); return; }
+    if (!teamForm.loginIdentity.trim()) { toast(L.teamIdentityRequired, 'warn'); return; }
+    setBusy(true);
+    try {
+      await api(`/api/contests/${params.id}/teams/${editTeam.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: teamForm.name.trim(),
+          scoreboardName: teamForm.scoreboardName.trim(),
+          loginIdentity: teamForm.loginIdentity.trim(),
+        }),
+      });
+      toast(L.teamSaved, 'success');
+      setEditTeam(null);
+      await load();
+    } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteTeam(team) {
+    if (typeof window !== 'undefined' && !window.confirm(L.teamDeleteConfirm)) return;
+    setBusy(true);
+    try {
+      await api(`/api/contests/${params.id}/teams/${team.id}`, { method: 'DELETE' });
+      toast(L.teamDeleted, 'success');
+      await load();
+    } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
+    finally { setBusy(false); }
+  }
+
+  async function inviteMember(team) {
+    const login = String(invites[String(team.id)] || '').trim();
+    if (!login) { toast(L.teamInviteRequired, 'warn'); return; }
+    setBusy(true);
+    try {
+      await api(`/api/contests/${params.id}/teams/${team.id}/invite`, { method: 'POST', body: JSON.stringify({ login }) });
+      toast(`${L.teamInvited}: ${login}.`, 'success');
+      setInvites((prev) => ({ ...prev, [String(team.id)]: '' }));
+      await load();
+    } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
+    finally { setBusy(false); }
+  }
+
+  function rosterOf(team) {
+    const rows = Array.isArray(team.roster) && team.roster.length
+      ? team.roster
+      : (team.members || team.memberIds || []).map((id) => ({ id, login: memberLogin[String(id)] || `${L.unknownId} #${id}` }));
+    return rows.map((r) => (String(r.id) === String(team.captainId) ? `${r.login || `#${r.id}`} (${L.teamCaptain})` : (r.login || `#${r.id}`))).join(', ');
   }
 
   if (mem === null) return <Skeleton lines={6} />;
@@ -312,7 +389,7 @@ export default function ManageMembersPage({ params }) {
         <Button variant="secondary" className="mt-2" onClick={importUsos} disabled={busy}>{L.usosImportBtn}</Button>
       </PageSection>
 
-      <PageSection title={t.me_teams_title} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{teams.length}</span>}>
+      <PageSection title={t.me_teams_title} hint={contest && contest.teamMode !== true ? L.teamNotRanked : undefined} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{teams.length}</span>}>
         <div className="flex gap-2 flex-wrap">
           <Input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder={t.members_team_ph} className="!w-56" aria-label={t.members_team_aria} />
           <Button variant="secondary" onClick={createTeam} disabled={busy}>{t.members_create_team}</Button>
@@ -325,16 +402,45 @@ export default function ManageMembersPage({ params }) {
                 { key: 'identity', label: t.members_login_identity, render: (team) => <span className="type-mono">{team.loginIdentity || team.name || '—'}</span> },
                 {
                   key: 'members', label: t.members_col_members, render: (team) => {
-                    const ids = team.members || team.memberIds || [];
-                    if (!ids.length) return '—';
-                    return <span className="type-mono text-xs">{ids.map((id) => memberLogin[String(id)] || `${L.unknownId} #${id}`).join(', ')}</span>;
+                    const roster = rosterOf(team);
+                    return <span className="type-mono text-xs">{roster || L.teamEmpty}</span>;
                   },
+                },
+                {
+                  key: 'invite', label: L.teamInvite, render: (team) => (
+                    <span className="flex gap-1 items-center">
+                      <Input
+                        value={invites[String(team.id)] || ''}
+                        onChange={(e) => setInvites((prev) => ({ ...prev, [String(team.id)]: e.target.value }))}
+                        placeholder={L.teamInvitePh}
+                        className="!w-36 !py-0.5"
+                        aria-label={`${L.teamInvite} ${team.name}`}
+                      />
+                      <Button variant="secondary" className="!py-0.5" disabled={busy} onClick={() => inviteMember(team)}>{L.teamInviteBtn}</Button>
+                    </span>
+                  ),
+                },
+                {
+                  key: 'actions', label: t.prob_actions, align: 'right', render: (team) => (
+                    <span className="flex gap-1 justify-end">
+                      <Button variant="secondary" className="!py-0.5" disabled={busy} onClick={() => openTeamEdit(team)}>{L.teamEdit}</Button>
+                      <Button variant="danger" className="!py-0.5" disabled={busy} onClick={() => deleteTeam(team)}>{L.teamDelete}</Button>
+                    </span>
+                  ),
                 },
               ]}
               rows={teams.map((team) => ({ ...team, key: team.id || team.name }))}
             />
           ) : <EmptyState line={t.members_no_teams} />}
         </div>
+
+        <Modal open={Boolean(editTeam)} onClose={() => setEditTeam(null)} title={L.teamEdit} onSubmit={saveTeam} submitLabel={t.common_save}>
+          <div className="flex flex-col gap-3">
+            <Input label={L.teamName} value={teamForm.name} onChange={(e) => setTeamForm((prev) => ({ ...prev, name: e.target.value }))} />
+            <Input label={L.teamScoreboard} value={teamForm.scoreboardName} onChange={(e) => setTeamForm((prev) => ({ ...prev, scoreboardName: e.target.value }))} />
+            <Input label={L.teamIdentity} value={teamForm.loginIdentity} onChange={(e) => setTeamForm((prev) => ({ ...prev, loginIdentity: e.target.value }))} />
+          </div>
+        </Modal>
       </PageSection>
     </div>
   );

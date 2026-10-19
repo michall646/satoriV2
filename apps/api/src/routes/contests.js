@@ -5,6 +5,7 @@ const { send, sendText, readBody } = require('../lib/http');
 const {
   authUser, needAuth, forbid, audit, contestRole, memberRole, canManageContest,
   sharesTeam, boardModeOf, isMyContestantRow, isTeacherRow, teacherIds, canReadContest,
+  isContestMember, teamHasMember,
 } = require('../lib/authz');
 const { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, buildRanking, csvCell, icsText, normalizeExam } = require('../lib/contestAccess');
 const { normalizeContestTime, resolveContestEnd } = require('../lib/contestTime');
@@ -43,11 +44,339 @@ function filterBoard(c, me, body) {
   return { ...body, rows, me: meOut };
 }
 
+// ---- S4-4 team lifecycle -------------------------------------------------
+// `members` is canonical; `memberIds` is the legacy alias kept for one release (D5/D12).
+// Captains are stored explicitly; legacy teams without one fall back to the first member.
+const TEAM_DEFAULT_MAX_SIZE = 3;
+
+function teamMemberIds(team) {
+  const list = Array.isArray(team.members) && team.members.length ? team.members : team.memberIds;
+  return (list || []).map(String);
+}
+function teamCaptainId(team) {
+  const ids = teamMemberIds(team);
+  if (!ids.length) return null;
+  const explicit = team.captainId != null ? String(team.captainId) : '';
+  return explicit && ids.includes(explicit) ? explicit : ids[0];
+}
+function teamView(team, me) {
+  const ids = teamMemberIds(team);
+  const captainId = teamCaptainId(team);
+  const roster = ids.map((id) => {
+    const u = store.get('users', id);
+    return {
+      id: u ? u.id : id,
+      login: u ? u.login : null,
+      name: u ? [u.firstName, u.lastName].filter(Boolean).join(' ') : '',
+    };
+  });
+  const captain = captainId ? store.get('users', captainId) : null;
+  return {
+    ...team,
+    members: ids,
+    memberIds: ids,
+    captainId,
+    captainLogin: captain ? captain.login : null,
+    roster,
+    memberLogins: roster.map((x) => x.login).filter(Boolean),
+    isMember: Boolean(me) && ids.includes(String(me.id)),
+    isCaptain: Boolean(me) && captainId === String(me.id),
+  };
+}
+function maxTeamSize(c) {
+  const raw = (c.settings || {}).maxTeamSize ?? c.maxTeamSize;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : TEAM_DEFAULT_MAX_SIZE;
+}
+function contestTeam(c, tid) {
+  const team = store.get('teams', tid);
+  if (!team || String(team.contestId) !== String(c.id)) return null;
+  return team;
+}
+function isContestMemberId(c, id) {
+  if (id == null) return false;
+  const key = String(id);
+  if ((c.members || []).some((x) => String(x) === key)) return true;
+  if ((c.admins || []).some((x) => String(x) === key)) return true;
+  return Boolean((c.roles || {})[key]);
+}
+function normalizeTeamUserId(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isInteger(n) && n > 0 ? n : s;
+}
+function isTeamManager(me, c, team) {
+  return canManageContest(me, c) || (Boolean(me) && teamCaptainId(team) === String(me.id));
+}
+function teamForbidden(res, message = 'Team captain or contest admin required.') {
+  return send(res, 403, { error: { code: 'TEAM_FORBIDDEN', message, hint: 'Ask the team captain or a contest admin.' } });
+}
+function teamActor(req, res, c) {
+  const me = needAuth(req, res);
+  if (!me) return null;
+  if (!isContestMember(c, me.id) && !canManageContest(me, c)) {
+    send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Join the contest before using teams.' } });
+    return null;
+  }
+  return me;
+}
+function removeTeamUserRows(teamId, userId) {
+  for (const row of store.query('teamMembers', (r) => String(r.teamId) === String(teamId)
+    && (userId == null || String(r.userId) === String(userId)))) {
+    store.remove('teamMembers', row.id);
+  }
+}
+function updateTeamMembers(team, ids, patch = {}) {
+  const members = ids.map(String);
+  return store.update('teams', team.id, { ...patch, members, memberIds: members });
+}
+
+async function listTeams(req, res, c) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const items = store.query('teams', (x) => String(x.contestId) === String(c.id)).map((t) => teamView(t, me));
+  return send(res, 200, {
+    items,
+    teamMode: c.teamMode === true,
+    maxTeamSize: maxTeamSize(c),
+    rankingNotice: c.teamMode === true ? null : 'Teams are recorded, but this contest ranks individual participants.',
+  });
+}
+
+async function createTeam(req, res, c) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const b = await readBody(req);
+  const name = String(b.name || '').trim();
+  if (!name) return send(res, 422, { error: { code: 'NAME', message: 'Team name required.', hint: 'e.g. uj7.' } });
+
+  const canonicalInput = Array.isArray(b.members);
+  const legacyInput = !canonicalInput && Array.isArray(b.memberIds);
+  const rawMembers = canonicalInput ? b.members : legacyInput ? b.memberIds : [me.id];
+  const ids = [];
+  const seen = new Set();
+  for (const raw of rawMembers) {
+    const id = normalizeTeamUserId(raw);
+    if (id == null) return send(res, 422, { error: { code: 'MEMBER_ID', message: 'Every team member needs a user ID.', hint: 'Send numeric user IDs.' } });
+    const key = String(id);
+    if (seen.has(key)) return send(res, 422, { error: { code: 'DUPLICATE_MEMBER', message: 'A user appears twice in the team.', hint: 'Remove the duplicate member ID.' } });
+    seen.add(key);
+    ids.push(id);
+  }
+
+  // Canonical `members` is strict. The legacy `memberIds` alias is normalized and
+  // non-members are dropped with a report so old clients keep working (D12).
+  const valid = [];
+  const dropped = [];
+  for (const id of ids) {
+    if (isContestMemberId(c, id)) valid.push(id);
+    else if (canonicalInput) {
+      return send(res, 422, {
+        error: { code: 'MEMBER_NOT_IN_CONTEST', message: 'Every team member must be a contest member.', hint: 'Add them to the contest first.' },
+        memberId: id,
+      });
+    } else {
+      dropped.push(id);
+    }
+  }
+  const validKeys = valid.map(String);
+  if (!canManageContest(me, c) && !validKeys.includes(String(me.id))) {
+    return send(res, 422, { error: { code: 'CREATOR_NOT_MEMBER', message: 'You must be on the team you create.', hint: 'Include your user ID or let the captain create it.' } });
+  }
+  if (valid.length > maxTeamSize(c)) {
+    return send(res, 409, { error: { code: 'TEAM_FULL', message: `Teams may have at most ${maxTeamSize(c)} members.`, hint: 'Remove a member or ask the contest admin.' } });
+  }
+
+  let captain = b.captainId != null ? normalizeTeamUserId(b.captainId) : null;
+  if (captain != null && !validKeys.includes(String(captain))) {
+    return send(res, 422, { error: { code: 'CAPTAIN', message: 'The captain must be a team member.', hint: 'Pick a captain from the member list.' } });
+  }
+  if (captain == null) captain = validKeys.includes(String(me.id)) ? me.id : (valid[0] || null);
+
+  const team = store.insert('teams', {
+    name,
+    contestId: c.id,
+    members: valid,
+    memberIds: valid,
+    captainId: captain,
+    loginIdentity: String(b.loginIdentity || '').trim() || name,
+    scoreboardName: String(b.scoreboardName || '').trim() || name,
+    createdAt: new Date().toISOString(),
+  });
+  audit(me.id, 'team.create', `contest:${c.id}/team:${team.id}`, { contestId: c.id, members: valid.length, teamMode: c.teamMode === true });
+  const out = teamView(team, me);
+  out.teamMode = c.teamMode === true;
+  if (dropped.length) out.droppedMembers = dropped;
+  if (c.teamMode !== true) out.rankingNotice = 'Teams are recorded, but this contest ranks individual participants (teamMode is off).';
+  return send(res, 201, out);
+}
+
+async function patchTeam(req, res, c, tid) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const team = contestTeam(c, tid);
+  if (!team) return send(res, 404, { error: { code: 'NO_TEAM', message: 'Team not found in this contest.', hint: 'Refresh the team list.' } });
+  if (!isTeamManager(me, c, team)) return teamForbidden(res);
+
+  const b = await readBody(req);
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(b, 'name')) {
+    const name = String(b.name || '').trim();
+    if (!name) return send(res, 422, { error: { code: 'NAME', message: 'Team name cannot be empty.', hint: 'Send a non-empty name.' } });
+    patch.name = name;
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'scoreboardName')) patch.scoreboardName = String(b.scoreboardName || '').trim();
+  if (Object.prototype.hasOwnProperty.call(b, 'loginIdentity')) {
+    const identity = String(b.loginIdentity || '').trim();
+    if (!identity) return send(res, 422, { error: { code: 'LOGIN_IDENTITY', message: 'Login identity cannot be empty.', hint: 'Use the team login, e.g. uj7.' } });
+    patch.loginIdentity = identity;
+  }
+  if (!Object.keys(patch).length) return send(res, 422, { error: { code: 'NO_FIELDS', message: 'Nothing to update.', hint: 'Send name, scoreboardName or loginIdentity.' } });
+
+  const updated = store.update('teams', team.id, patch);
+  audit(me.id, 'team.update', `contest:${c.id}/team:${team.id}`, { contestId: c.id, fields: Object.keys(patch) });
+  return send(res, 200, { ok: true, team: teamView(updated, me) });
+}
+
+async function deleteTeam(req, res, c, tid) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const team = contestTeam(c, tid);
+  if (!team) return send(res, 404, { error: { code: 'NO_TEAM', message: 'Team not found in this contest.', hint: 'Refresh the team list.' } });
+  if (!isTeamManager(me, c, team)) return teamForbidden(res);
+  removeTeamUserRows(team.id, null);
+  store.remove('teams', team.id);
+  audit(me.id, 'team.delete', `contest:${c.id}/team:${team.id}`, { contestId: c.id, name: team.name });
+  return send(res, 200, { ok: true, deleted: true, id: team.id });
+}
+
+async function joinTeam(req, res, c, tid) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const team = contestTeam(c, tid);
+  if (!team) return send(res, 404, { error: { code: 'NO_TEAM', message: 'Team not found in this contest.', hint: 'Refresh the team list.' } });
+  if (teamHasMember(team, me.id)) return send(res, 409, { error: { code: 'ALREADY_MEMBER', message: 'You are already on this team.', hint: 'Leave it first to join another team.' } });
+  const ids = teamMemberIds(team);
+  if (ids.length >= maxTeamSize(c)) return send(res, 409, { error: { code: 'TEAM_FULL', message: `This team already has ${maxTeamSize(c)} members.`, hint: 'Ask the captain to free a slot or join another team.' } });
+  const captain = teamCaptainId(team) || me.id;
+  const updated = updateTeamMembers(team, [...ids, me.id], { captainId: captain });
+  audit(me.id, 'team.join', `contest:${c.id}/team:${team.id}`, { contestId: c.id });
+  return send(res, 200, { ok: true, team: teamView(updated, me) });
+}
+
+async function leaveTeam(req, res, c, tid) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const team = contestTeam(c, tid);
+  if (!team) return send(res, 404, { error: { code: 'NO_TEAM', message: 'Team not found in this contest.', hint: 'Refresh the team list.' } });
+  if (!teamHasMember(team, me.id)) return send(res, 409, { error: { code: 'NOT_MEMBER', message: 'You are not on this team.', hint: 'Refresh the team list.' } });
+  const ids = teamMemberIds(team).filter((id) => id !== String(me.id));
+  removeTeamUserRows(team.id, me.id);
+  if (!ids.length) {
+    store.remove('teams', team.id);
+    audit(me.id, 'team.leave', `contest:${c.id}/team:${team.id}`, { contestId: c.id, deleted: true });
+    return send(res, 200, { ok: true, left: true, deleted: true, id: team.id, team: null });
+  }
+  const wasCaptain = teamCaptainId(team) === String(me.id);
+  const captainId = wasCaptain ? ids[0] : teamCaptainId(team);
+  const updated = updateTeamMembers(team, ids, { captainId });
+  audit(me.id, 'team.leave', `contest:${c.id}/team:${team.id}`, { contestId: c.id, promotedCaptain: wasCaptain ? captainId : undefined });
+  return send(res, 200, { ok: true, left: true, team: teamView(updated, me) });
+}
+
+async function inviteToTeam(req, res, c, tid) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const team = contestTeam(c, tid);
+  if (!team) return send(res, 404, { error: { code: 'NO_TEAM', message: 'Team not found in this contest.', hint: 'Refresh the team list.' } });
+  if (!isTeamManager(me, c, team)) return teamForbidden(res);
+
+  const b = await readBody(req);
+  let user = null;
+  if (b.userId != null) user = store.get('users', b.userId);
+  else if (b.login) user = store.query('users', (x) => x.login === String(b.login).trim())[0];
+  if (!user) return send(res, 404, { error: { code: 'NO_USER', message: 'No such user.', hint: 'They must register first.' } });
+  if (!isContestMemberId(c, user.id)) {
+    return send(res, 422, { error: { code: 'MEMBER_NOT_IN_CONTEST', message: 'That user is not a contest member.', hint: 'Add them to the contest first.' } });
+  }
+  if (teamHasMember(team, user.id)) return send(res, 409, { error: { code: 'ALREADY_MEMBER', message: 'That user is already on the team.', hint: 'Pick another contest member.' } });
+  const ids = teamMemberIds(team);
+  if (ids.length >= maxTeamSize(c)) return send(res, 409, { error: { code: 'TEAM_FULL', message: `Teams may have at most ${maxTeamSize(c)} members.`, hint: 'Remove a member first.' } });
+  const captainId = teamCaptainId(team) || user.id;
+  const updated = updateTeamMembers(team, [...ids, user.id], { captainId });
+  audit(me.id, 'team.invite', `contest:${c.id}/team:${team.id}`, { contestId: c.id, userId: user.id, login: user.login });
+  return send(res, 200, { ok: true, team: teamView(updated, me) });
+}
+
+async function removeTeamMember(req, res, c, tid, uid) {
+  const me = teamActor(req, res, c);
+  if (!me) return true;
+  const team = contestTeam(c, tid);
+  if (!team) return send(res, 404, { error: { code: 'NO_TEAM', message: 'Team not found in this contest.', hint: 'Refresh the team list.' } });
+  if (!isTeamManager(me, c, team)) return teamForbidden(res);
+  const target = normalizeTeamUserId(uid);
+  if (!teamHasMember(team, target)) return send(res, 404, { error: { code: 'TEAM_MEMBER', message: 'That user is not on this team.', hint: 'Refresh the team roster.' } });
+  const ids = teamMemberIds(team).filter((id) => id !== String(target));
+  removeTeamUserRows(team.id, target);
+  if (!ids.length) {
+    store.remove('teams', team.id);
+    audit(me.id, 'team.member.remove', `contest:${c.id}/team:${team.id}`, { contestId: c.id, userId: target, deleted: true });
+    return send(res, 200, { ok: true, removed: target, deleted: true, team: null });
+  }
+  const wasCaptain = teamCaptainId(team) === String(target);
+  const captainId = wasCaptain ? ids[0] : teamCaptainId(team);
+  const updated = updateTeamMembers(team, ids, { captainId });
+  audit(me.id, 'team.member.remove', `contest:${c.id}/team:${team.id}`, { contestId: c.id, userId: target, promotedCaptain: wasCaptain ? captainId : undefined });
+  return send(res, 200, { ok: true, removed: target, team: teamView(updated, me) });
+}
+
+async function handleTeamRoutes(req, res, p, m) {
+  let mm = p.match(/^\/api\/contests\/(\d+)\/teams$/);
+  if (mm) {
+    const c = store.get('contests', mm[1]);
+    if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } });
+    if (m === 'GET') return listTeams(req, res, c);
+    if (m === 'POST') return createTeam(req, res, c);
+    return false;
+  }
+  mm = p.match(/^\/api\/contests\/(\d+)\/teams\/(\d+)$/);
+  if (mm) {
+    const c = store.get('contests', mm[1]);
+    if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } });
+    if (m === 'PATCH') return patchTeam(req, res, c, mm[2]);
+    if (m === 'DELETE') return deleteTeam(req, res, c, mm[2]);
+    return false;
+  }
+  mm = p.match(/^\/api\/contests\/(\d+)\/teams\/(\d+)\/(join|leave|invite)$/);
+  if (mm) {
+    const c = store.get('contests', mm[1]);
+    if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } });
+    if (m !== 'POST') return false;
+    if (mm[3] === 'join') return joinTeam(req, res, c, mm[2]);
+    if (mm[3] === 'leave') return leaveTeam(req, res, c, mm[2]);
+    return inviteToTeam(req, res, c, mm[2]);
+  }
+  mm = p.match(/^\/api\/contests\/(\d+)\/teams\/(\d+)\/members\/(\d+)$/);
+  if (mm) {
+    const c = store.get('contests', mm[1]);
+    if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } });
+    if (m === 'DELETE') return removeTeamMember(req, res, c, mm[2], mm[3]);
+    return false;
+  }
+  return false;
+}
+
 async function handle(req, res, url, p, m) {
   const u = url;
   // Communications were extracted to routes/comms.js; delegate before contest routes.
   if (/^\/api\/contests\/\d+\/(clarifications|news(?:\.rss)?|subpages)(\/|$)/.test(p)) {
     return comms.handle(req, res, url, p, m);
+  }
+  // Team lifecycle lives in its own block so legacy `/teams` GET/POST stays intact.
+  if (/^\/api\/contests\/\d+\/teams(?:\/|$)/.test(p)) {
+    const handled = await handleTeamRoutes(req, res, p, m);
+    if (handled !== false) return handled;
   }
   // contests list/create
   if (p === '/api/contests' && m === 'GET') {
@@ -88,7 +417,7 @@ async function handle(req, res, url, p, m) {
   }
 
   // contest sub-routes
-  let mt = p.match(/^\/api\/contests\/(\d+)\/(apply|members|members\/approve|members\/csv|duplicate|teams|problems|rankings\/live|ranking|ranking\.csv|grade|grade\.ics|deadlines\/bulk-extend|audit)$/);
+  let mt = p.match(/^\/api\/contests\/(\d+)\/(apply|members|members\/approve|members\/csv|duplicate|problems|rankings\/live|ranking|ranking\.csv|grade|grade\.ics|deadlines\/bulk-extend|audit)$/);
   if (mt && (m === 'GET' || m === 'POST')) {
     const cid = mt[1];
     const act = mt[2];
@@ -234,16 +563,6 @@ async function handle(req, res, url, p, m) {
       audit(me.id, 'contest.duplicate', `contest:${nc.id}`, { from: c.id, problems: probMap.size });
       return send(res, 201, nc);
     }
-    if (act === 'teams' && m === 'GET') return send(res, 200, { items: store.query('teams', (x) => String(x.contestId) === String(c.id)) });
-    if (act === 'teams' && m === 'POST') {
-      const me = needAuth(req, res);
-      if (!me) return true;
-      const b = await readBody(req);
-      if (!b.name) return send(res, 422, { error: { code: 'NAME', message: 'Team name required.', hint: '' } });
-      const teamMembers = b.members || b.memberIds || [me.id];
-      const tm = store.insert('teams', { name: b.name, contestId: c.id, members: teamMembers, memberIds: teamMembers, loginIdentity: b.loginIdentity || b.name, scoreboardName: b.name });
-      return send(res, 201, tm);
-    }
     if (act === 'problems' && m === 'GET') {
       const q = (u.searchParams.get('q') || '').toLowerCase();
       const tag = u.searchParams.get('tag') || '';
@@ -286,8 +605,14 @@ async function handle(req, res, url, p, m) {
         }
         const solvesPct = Math.round((((acceptedBy.get(String(x.id)) || new Set()).size) / memberDenom) * 100);
         const setterUser = (x.setterId || x.by) ? store.get('users', x.setterId || x.by) : null;
+        const row = enrichProblemWithDeadline(x, c);
+        // Authoring programs are secrets: never include checker/validator/reference
+        // source in a student-facing problem list.
+        if (!canManage) {
+          for (const f of ['checkerCode', 'checkerLang', 'checkerFile', 'validator', 'validatorLang', 'validatorCode', 'validatorFile', 'referenceCode', 'referenceLang']) delete row[f];
+        }
         return {
-          ...enrichProblemWithDeadline(x, c),
+          ...row,
           _best: best, _tries: tries, _score: score, solvesPct,
           alias: (x.aliasLetters || {})[String(c.id)] || x.code || null,
           setter: setterUser ? setterUser.login : null,

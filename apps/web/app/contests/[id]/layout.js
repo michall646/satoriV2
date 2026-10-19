@@ -43,6 +43,7 @@ function DeadlineStrip({ contestId }) {
 
 export default function ContestLayout({ children, params }) {
   const t = STR[getLang()];
+  const teamLabel = getLang() === 'pl' ? 'Drużyna' : 'Team';
   const [isAdmin, setIsAdmin] = useState(false);
   const [contest, setContest] = useState(null);
   const pathname = usePathname?.() || '';
@@ -56,6 +57,7 @@ export default function ContestLayout({ children, params }) {
     { href: `/contests/${params.id}`, labelKey: 'contest_tab_problems', active: pathname === `/contests/${params.id}`, icon: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /> },
     { href: `/contests/${params.id}/results`, labelKey: 'contest_tab_results', active: pathname.includes('/results'), icon: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></> },
     { href: `/contests/${params.id}/ranking`, labelKey: 'contest_tab_ranking', active: pathname.includes('/ranking'), icon: <><circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" /></> },
+    { href: `/contests/${params.id}/team`, label: teamLabel, active: pathname.includes('/team'), icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></> },
     { href: `/contests/${params.id}/clarifications`, labelKey: 'contest_tab_clarifications', active: pathname.includes('/clarifications'), icon: <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /> },
     { href: `/contests/${params.id}/announcements`, labelKey: 'announcements', active: pathname.includes('/announcements'), icon: <><path d="M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1z" /><path d="M16 8a5 5 0 0 1 0 8" /><path d="M19 5a9 9 0 0 1 0 14" /></> },
   ];
@@ -84,7 +86,7 @@ export default function ContestLayout({ children, params }) {
         {tabs.map((tab) => (
           <Link key={tab.href} href={tab.href} prefetch aria-current={tab.active ? 'page' : undefined} className="text-sm px-3 py-2 rounded-xl whitespace-nowrap focus-ring flex items-center gap-2.5 transition" style={tab.active ? { background: 'rgb(128 140 155 / 0.16)', color: 'var(--fg)', fontWeight: 600 } : { color: 'var(--muted)' }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{tab.icon}</svg>
-            {t[tab.labelKey]}
+            {tab.labelKey ? t[tab.labelKey] : tab.label}
           </Link>
         ))}
       </nav>
