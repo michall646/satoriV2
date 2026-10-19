@@ -82,6 +82,9 @@ test('contests list: archived toggle + role=other (S2-8)', async () => {
   assert.ok(caps.body.items.some((c) => String(c.id) === String(c1)), 'archived=Yes still accepted');
 
   await addMember(c2, 'jan_kowalski');
+  // B10: drafts are hidden from non-admins; open registration so c4 is discoverable.
+  const open = await api(`/api/contests/${c4}`, { method: 'PATCH', ...json({ lifecycle: 'registration' }) }, teacherTok);
+  assert.equal(open.status, 200);
   const other = await api('/api/contests?role=other', {}, janTok);
   assert.ok(!other.body.items.some((c) => String(c.id) === String(c2)), 'joined contest not in other');
   assert.ok(other.body.items.some((c) => String(c.id) === String(c4)), 'unjoined contest listed in other');
