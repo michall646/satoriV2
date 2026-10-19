@@ -435,6 +435,6 @@ A release gate is done only when:
 | Gate C | TODO | |
 | Gate D | TODO | |
 
-Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError test, `b503272` import flags, `14a8df3` UI polish.
+Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError test, `b503272` import flags, `14a8df3` UI polish, `e19ba5e` migration tests, `be57cab` API route split, `5aecfb6` ranking freeze, `0f2cc9a` judge truth, `e743dbf` demo truth, `dda9ce6` student editor/notes.
 
 Update this table as work lands. Do not mark a gate done without the Gate checklist and E2E.
