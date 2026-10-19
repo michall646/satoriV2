@@ -50,8 +50,12 @@ function normalizeExam(settings) {
   let changed = false;
   if (e.ipAllow == null && e.ips != null) { e.ipAllow = e.ips; changed = true; }
   if (e.timeWindow == null && e.tokens != null) { e.timeWindow = e.tokens; changed = true; }
+  if (e.ipAllow == null && settings.ips != null) { e.ipAllow = settings.ips; changed = true; }
+  if (e.timeWindow == null && settings.tokens != null) { e.timeWindow = settings.tokens; changed = true; }
   if ('ips' in e) { delete e.ips; changed = true; }
   if ('tokens' in e) { delete e.tokens; changed = true; }
+  if ('ips' in settings) { delete settings.ips; changed = true; }
+  if ('tokens' in settings) { delete settings.tokens; changed = true; }
   if (!isObj(settings.exam) || changed) {
     settings.exam = {
       fullscreen: Boolean(e.fullscreen),
