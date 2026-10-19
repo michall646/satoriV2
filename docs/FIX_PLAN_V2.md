@@ -423,7 +423,7 @@ A release gate is done only when:
 | Item | Status | Notes |
 |------|--------|-------|
 | S0-00 git baseline | DONE | `b23e26f`, `.openchamber/.playwright-mcp/.tmp` ignored |
-| S0-01 API route split | IN PROGRESS | background agent |
+| S0-01 API route split | DONE | 57-line dispatcher + `apps/api/src/routes/*`; commit `be57cab` |
 | S0-02 web client split | DONE | `lib/api.js`, `lib/i18n.js`, `lib/verdict.js`, facade `lib/client.js`; commit `3c49c6e` |
 | S0-03 test harness | DONE | `tests/helpers.js`, `tests/harness.test.js`; dynamic port |
 | S0-04 ApiError contract | DONE | `ApiError` keeps status/code/message/hint/field; `tests/web-api.test.js` |
@@ -435,7 +435,7 @@ A release gate is done only when:
 | Gate B | DONE (core) | H authoring/checker (custom checker, validators, test manager, editor fields, clone/history), I student web, J announcements/notifications, K gradebook/bulk all committed. 179/179 tests, build green. |
 | Gate C | DONE (core) | L async judge/persistent queue, M validators/reference, N PWA/offline, O teams, P auth reset/2FA all committed. 222/222 tests, build green. |
 | Gate C next | TODO | org admin G6, real email transport, load/Postgres/observability, MOSS/JPlag adapter |
-| Gate D | TODO | SSO/2FA depth, org admin, CLI/SDK depth, MOSS adapter |
+| Gate D | TODO | org admin G6, real email, load/Postgres/observability, MOSS/JPlag adapter, SSO depth, CLI/SDK depth |
 
 Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError, `b503272` import flags, `14a8df3` UI polish, `e19ba5e` migration tests, `be57cab` API route split, `5aecfb6` ranking freeze, `0f2cc9a` judge truth, `e743dbf` demo truth, `dda9ce6` student editor/notes, `89642e0` contest engine, `6efb9cf` platform/docs/CLI, `30ed0bd` OpenAPI JSON, `d317ec3` grading, `9c66736` Gate A security/comms/integration, `8f72c25` announcements, `d8a402b` OpenAPI RSS, `fd817d0` contest membership/drafts, `cd96355` security headers, `3975db0` audit, `9589b42` authoring/checker, `009ab73` student2, `b0e4bf0` gradebook, `d234cf8` notification prefs/privacy, `7414c80` Batch 2 green, `c130223` PWA, `82fd4df` contest timer, `2de4dfb` validators/reference, `76a9dec` API docs, `169f997` teams, `c6a652b` team docs, `43135e1` security test, `aa0d200` async judge, `2f32c0b` auth 2FA/reset, `a152d38` auth docs.
 
