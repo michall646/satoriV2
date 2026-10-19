@@ -1147,7 +1147,7 @@
         "tags": [
           "problems"
         ],
-        "summary": "Edit problem; limit changes are versioned to limitHistory",
+        "summary": "Edit problem; validator/reference/checker fields, limits versioned to limitHistory",
         "parameters": [
           {
             "$ref": "#/components/parameters/ProblemId"
@@ -1317,6 +1317,58 @@
           "problems"
         ],
         "summary": "Problem version snapshots (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/validators/run": {
+      "post": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Run the configured validator over every case input (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/reference/run": {
+      "post": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Run the reference solution over every case and report verdicts (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/reference/generate": {
+      "post": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Fill empty expected outputs from the reference solution (admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemId"
+          }
+        ]
+      }
+    },
+    "/api/problems/{id}/stress": {
+      "post": {
+        "tags": [
+          "problems"
+        ],
+        "summary": "Compare reference and brute programs on generated inputs (admins)",
         "parameters": [
           {
             "$ref": "#/components/parameters/ProblemId"
