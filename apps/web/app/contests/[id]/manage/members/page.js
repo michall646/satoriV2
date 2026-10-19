@@ -15,13 +15,23 @@ const LABELS = {
     membersAll: 'Members & staff', role: 'Role', usosId: 'USOS ID', demote: 'Demote', demoted: 'Demoted', unknownId: 'unknown',
     usosImport: 'Import USOS IDs', usosImportBtn: 'Import USOS IDs', usosImportHint: 'One login,usos_id per line (header optional).',
     usosPaste: 'Paste at least one login,usos_id row.', usosImported: 'USOS IDs updated', usosSkipped: 'skipped (not members)',
+    extend: 'Extension', extendDays: 'Days', apply: 'Apply', extUntil: 'until', extSaved: 'Extension rows saved',
+    badDays: 'Enter days (+/-) for the extension.', extHint: 'Per-student deadline extension in days from the current deadline. Changes are audited.',
   },
   pl: {
     membersAll: 'Uczestnicy i kadra', role: 'Rola', usosId: 'ID USOS', demote: 'Zdegraduj', demoted: 'Zdegradowano', unknownId: 'nieznany',
     usosImport: 'Import ID USOS', usosImportBtn: 'Importuj ID USOS', usosImportHint: 'Jeden login,id_usos na linię (nagłówek opcjonalny).',
     usosPaste: 'Wklej co najmniej jeden wiersz login,id_usos.', usosImported: 'Zaktualizowano ID USOS', usosSkipped: 'pominięto (nie są członkami)',
+    extend: 'Przedłużenie', extendDays: 'Dni', apply: 'Zastosuj', extUntil: 'do', extSaved: 'Zapisano przedłużenia',
+    badDays: 'Podaj liczbę dni (+/-) przedłużenia.', extHint: 'Przedłużenie terminu dla studenta w dniach od obecnego terminu. Zmiany trafiają do audytu.',
   },
 };
+
+function fmtUntil(at) {
+  if (!at) return '';
+  try { return new Date(at).toLocaleDateString(getLang() === 'pl' ? 'pl-PL' : undefined); }
+  catch { return String(at); }
+}
 
 export default function ManageMembersPage({ params }) {
   const t = STR[getLang()];
@@ -30,6 +40,8 @@ export default function ManageMembersPage({ params }) {
   const [mem, setMem] = useState(null);
   const [teams, setTeams] = useState([]);
   const [usos, setUsos] = useState({});
+  const [ext, setExt] = useState({});
+  const [extDays, setExtDays] = useState({});
   const [q, setQ] = useState('');
   const [csv, setCsv] = useState('');
   const [usosCsv, setUsosCsv] = useState('');
@@ -45,11 +57,18 @@ export default function ManageMembersPage({ params }) {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [params.id]);
 
   // The members route does not expose USOS IDs yet; the grade matrix does (manager-only).
+  // The same response now carries per-student extensions for the control below.
   async function loadUsos() {
     try {
       const m = await api(`/api/contests/${params.id}/grade/matrix`);
       setUsos(Object.fromEntries((m.rows || []).map((r) => [String(r.id), r.usosId || ''])));
-    } catch { setUsos({}); }
+      const map = {};
+      for (const e of m.extensions || []) {
+        const k = String(e.userId);
+        if (!map[k] || new Date(e.until) > new Date(map[k])) map[k] = e.until;
+      }
+      setExt(map);
+    } catch { setUsos({}); setExt({}); }
   }
   useEffect(() => { loadUsos(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [params.id]);
 
@@ -151,6 +170,21 @@ export default function ManageMembersPage({ params }) {
     finally { setBusy(false); }
   }
 
+  // Per-student deadline extension (D3). Days are added to each current deadline
+  // server-side; the grade matrix shows the resulting until date.
+  async function extendUser(u) {
+    const days = Number(extDays[String(u.id)]);
+    if (!Number.isFinite(days) || days === 0) { toast(L.badDays, 'warn'); return; }
+    setBusy(true);
+    try {
+      const r = await api(`/api/contests/${params.id}/grade/extend-selected`, { method: 'POST', body: JSON.stringify({ userIds: [u.id], days }) });
+      toast(`${L.extSaved} (${r.updated ?? 0}).`, 'success');
+      setExtDays((prev) => ({ ...prev, [String(u.id)]: '' }));
+      await loadUsos();
+    } catch (e) { toast(`${t.manage_failed} ${e.message}`, 'danger'); }
+    finally { setBusy(false); }
+  }
+
   async function createTeam() {
     if (!teamName.trim()) { toast(t.members_team_required, 'warn'); return; }
     setBusy(true);
@@ -194,13 +228,34 @@ export default function ManageMembersPage({ params }) {
         </div>
       </PageSection>
 
-      <PageSection title={L.membersAll} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{mem.members.length}</span>}>
+      <PageSection title={L.membersAll} hint={L.extHint} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{mem.members.length}</span>}>
         {mem.members.length ? (
           <Table
             columns={[
               { key: 'login', label: 'Login', render: (u) => <span className="type-mono">{u.login}</span> },
               { key: 'role', label: L.role, render: (u) => <span>{t[ROLE_KEY[roleOf(u)]] || roleOf(u)}</span> },
               { key: 'usosId', label: L.usosId, render: (u) => <span className="type-mono">{u.usosId || usos[String(u.id)] || '—'}</span> },
+              {
+                key: 'extension', label: L.extend, render: (u) => {
+                  if (roleOf(u) !== 'participant') return <span style={{ color: 'var(--muted)' }}>—</span>;
+                  return (
+                    <span className="flex gap-1 items-center justify-end">
+                      {ext[String(u.id)] ? <span className="text-[11px] type-mono" style={{ color: 'var(--ok-text)' }}>{L.extUntil} {fmtUntil(ext[String(u.id)])}</span> : null}
+                      <input
+                        type="number"
+                        step="1"
+                        value={extDays[String(u.id)] ?? ''}
+                        onChange={(e) => setExtDays((prev) => ({ ...prev, [String(u.id)]: e.target.value }))}
+                        className="rounded px-1.5 py-0.5 text-sm focus-ring"
+                        style={{ width: 64, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--fg)' }}
+                        aria-label={`${L.extendDays} ${u.login}`}
+                        placeholder={L.extendDays}
+                      />
+                      <Button variant="secondary" className="!py-0.5" disabled={busy} onClick={() => extendUser(u)}>{L.apply}</Button>
+                    </span>
+                  );
+                },
+              },
               {
                 key: 'actions', label: t.prob_actions, align: 'right', render: (u) => (
                   <span className="flex gap-1 justify-end">

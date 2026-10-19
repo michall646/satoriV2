@@ -9,13 +9,14 @@ const {
 const { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, buildRanking, csvCell, icsText, normalizeExam } = require('../lib/contestAccess');
 const { normalizeContestTime, resolveContestEnd } = require('../lib/contestTime');
 const { isAccepted } = require('../lib/ranking');
+const { releaseState, computeRowGrade } = require('./grades');
 const comms = require('./comms');
 
 const LIVE_INTERVAL_MS = Number(process.env.SATORI_LIVE_INTERVAL_MS || 15000);
 
 // A11: public contests never expose member/admin IDs or exam IP/time settings.
 function publicContestView(c) {
-  const { members, pending, admins, settings, ...rest } = c;
+  const { members, pending, admins, settings, gradeOverrides, extensions, ...rest } = c;
   const safeSettings = { ...(settings || {}) };
   delete safeSettings.exam;
   delete safeSettings.ips;
@@ -386,9 +387,13 @@ async function handle(req, res, url, p, m) {
       if (!me) return true;
       const uid = u.searchParams.get('user') || me.id;
       if (String(uid) !== String(me.id) && !canManageContest(me, c) && !sharesTeam(c, me.id, uid)) return forbid(res);
+      if (!canManageContest(me, c) && !releaseState(c).released) {
+        return send(res, 403, { error: { code: 'NOT_RELEASED', message: 'Grades are not released yet.', hint: 'Your teacher will publish them.' } });
+      }
       const probs = store.query('problems', (x) => String(x.contestId) === String(c.id));
-      const { out, deadlines, policy, submittedAt } = computeLabsGrade(c, probs, (s) => String(s.userId) === String(uid));
-      return send(res, 200, { ...out, deadlines, deadlinePolicy: policy, submittedAt });
+      const subs = store.query('submits', (s) => String(s.contestId) === String(c.id) && !s.sampleOnly);
+      const { out, deadlines, policy, submittedAt, scale } = computeRowGrade(c, probs, uid, subs);
+      return send(res, 200, { ...out, deadlines, deadlinePolicy: policy, submittedAt, scale });
     }
     if (act === 'grade.ics' && m === 'GET') {
       const dl = contestDeadlines(c);

@@ -6,6 +6,7 @@ const J = require('../../../../packages/judge/src/judge');
 const { send, readBody, submitRate, throttleResponse, clientIp } = require('./http');
 const { needAuth, canManageProblem, teamHasMember, audit, contestVisibility, isContestMember } = require('./authz');
 const { contestDeadlines, normalizeExam } = require('./contestAccess');
+const { resolveContestEnd } = require('./contestTime');
 const { defaultDeadlinePolicy, isLateAt, lateUnitsBetween } = require('./ranking');
 const { processQueue } = require('./judgeWorker');
 
@@ -44,6 +45,18 @@ function inTimeWindow(window, date) {
   const end = toMin(m[3], m[4]);
   if (start <= end) return now >= start && now <= end;
   return now >= start || now <= end; // overnight window
+}
+
+function extensionFor(contest, userId, problemId) {
+  if (!contest) return null;
+  return store.query('extensions', (e) => String(e.contestId) === String(contest.id)
+    && String(e.userId) === String(userId)
+    && (e.problemId == null || String(e.problemId) === String(problemId)))
+    .sort((a, b) => new Date(b.until).getTime() - new Date(a.until).getTime())[0] || null;
+}
+function effectiveDeadline(contest, userId, problemId, fallback) {
+  const ext = extensionFor(contest, userId, problemId);
+  return ext && ext.until ? ext.until : fallback;
 }
 
 function allowsAfterEnd(contest) {
@@ -118,7 +131,8 @@ async function createSubmit(req, res, preset) {
     }
   }
   // A8: endAt blocks real submissions; sample runs and upsolve/playground do not.
-  if (contest && !manage && !sampleOnly && contest.endAt && Date.now() > new Date(contest.endAt).getTime() && !allowsAfterEnd(contest)) {
+  const contestEnd = contest ? resolveContestEnd(contest) : null;
+  if (contest && !manage && !sampleOnly && contestEnd && Date.now() > new Date(contestEnd).getTime() && !allowsAfterEnd(contest)) {
     return send(res, 409, { error: { code: 'ENDED', message: 'Contest has ended.', hint: 'Upsolve in Playground or ask the teacher.' } });
   }
   if (sampleOnly && contest && contest.settings && contest.settings.allowSampleRun === false) {
@@ -141,7 +155,7 @@ async function createSubmit(req, res, preset) {
     const policy = defaultDeadlinePolicy(contest);
     if (policy.enabled) {
       const dl = contestDeadlines(contest);
-      const at = dl.deadlines[pr.id];
+      const at = effectiveDeadline(contest, me.id, pr.id, dl.deadlines[pr.id]);
       if (at && isLateAt(at, new Date().toISOString(), policy.graceMin) && policy.lateMode === 'hard') {
         return send(res, 409, { error: { code: 'LATE', message: `Deadline passed (${at}).`, hint: 'Upsolve in Playground or ask teacher for extension.', deadlineAt: at } });
       }
@@ -154,7 +168,7 @@ async function createSubmit(req, res, preset) {
     const policy = defaultDeadlinePolicy(contest);
     if (policy.enabled) {
       const dl = contestDeadlines(contest);
-      const at = dl.deadlines[pr.id];
+      const at = effectiveDeadline(contest, me.id, pr.id, dl.deadlines[pr.id]);
       if (at && isLateAt(at, nowIso, policy.graceMin)) {
         isLate = true;
         lateUnits = lateUnitsBetween(at, nowIso, policy.penaltyKind, policy.graceMin);
