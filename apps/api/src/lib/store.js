@@ -8,7 +8,7 @@ const DATA_DIR = process.env.SATORI_DATA_DIR || path.join(__dirname, '..', '..',
 const COLLECTIONS = [
   'organizations', 'users', 'teams', 'contests', 'problemSets', 'problems',
   'testGroups', 'testCases', 'submits', 'clarifications', 'news', 'subpages',
-  'audit', 'notifications', 'webhooks', 'sessions', 'limitHistory', 'notes', 'deliveries', 'problemVersions',
+  'audit', 'notifications', 'webhooks', 'sessions', 'limitHistory', 'notes', 'deliveries', 'problemVersions', 'passwordResets', 'twoFactorChallenges',
 ];
 
 function ensureDir() {

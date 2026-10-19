@@ -72,4 +72,4 @@ function verifyJwt(token) {
   return body;
 }
 
-module.exports = { hashPassword, verifyPassword, needsRehash, signJwt, verifyJwt };
+module.exports = { hashPassword, verifyPassword, needsRehash, signJwt, verifyJwt, sha256 };

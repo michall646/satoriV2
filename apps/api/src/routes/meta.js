@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { store } = require('../lib/store');
+const judgeQueue = require('../lib/judgeQueue');
 const J = require('../../../../packages/judge/src/judge');
 const { send, sendText } = require('../lib/http');
 const { authUser, canReadContest, canManageContest } = require('../lib/authz');
@@ -25,14 +26,16 @@ function openapi() {
 async function handle(req, res, url, p, m) {
   const u = url;
   // health / meta
-  if (p === '/api/health' && m === 'GET') return send(res, 200, { ok: true, time: new Date().toISOString(), queue: J.QUEUE.length });
+  if (p === '/api/health' && m === 'GET') return send(res, 200, { ok: true, time: new Date().toISOString(), queue: judgeQueue.queueSize() });
   if (p === '/api/status' && m === 'GET') {
     const avail = J.languageAvailability();
+    const queue = judgeQueue.queueSize();
     return send(res, 200, {
-      queue: J.QUEUE.length,
-      etaSec: J.QUEUE.length * 4,
-      etaNote: 'estimate (no worker telemetry yet)',
-      workers: ['local-spawn'],
+      queue,
+      etaSec: queue * 4,
+      etaNote: 'estimate from queue depth; one persistent worker thread judges serially',
+      workers: ['worker_thread'],
+      persistentQueue: true,
       local: true,
       languages: Object.entries(avail).filter(([, v]) => v).map(([k]) => k),
       missingToolchains: Object.entries(avail).filter(([, v]) => !v).map(([k]) => k),

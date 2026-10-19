@@ -5,7 +5,7 @@ const { store } = require('./lib/store');
 const { hashPassword } = require('./lib/crypto');
 
 function reset() {
-  for (const c of ['organizations','users','teams','contests','problemSets','problems','testGroups','testCases','submits','clarifications','news','subpages','audit','notifications','webhooks','sessions','limitHistory','notes','appeals','violations','deliveries','problemVersions']) {
+  for (const c of ['organizations','users','teams','contests','problemSets','problems','testGroups','testCases','submits','clarifications','news','subpages','audit','notifications','webhooks','sessions','limitHistory','notes','appeals','violations','deliveries','problemVersions','passwordResets','twoFactorChallenges']) {
     store.replaceAll(c, []);
   }
 }
