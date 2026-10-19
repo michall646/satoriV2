@@ -16,29 +16,55 @@ function saveLS(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* noop */ }
 }
 
+// E1: the API only accepts canonical language ids (validators.LANGUAGES); the old
+// lowercase ids (cpp/python/java) are rejected with LANG_OFF.
+const CANONICAL_LANGS = ['C', 'C++17', 'Java', 'Python', 'Rust', 'JavaScript'];
+
+// E1: filename extension wins; conservative code hints only when there is no extension.
 function detectLang(filename, code) {
-  if (filename?.endsWith('.py')) return 'python';
-  if (filename?.endsWith('.java')) return 'java';
-  if (filename?.endsWith('.c')) return 'c';
-  if (filename?.endsWith('.cpp') || filename?.endsWith('.cc')) return 'cpp';
-  if (/^import |^print\(/.test(code || '')) return 'python';
-  return 'cpp';
+  const f = String(filename || '').toLowerCase();
+  if (f.endsWith('.py')) return 'Python';
+  if (f.endsWith('.java')) return 'Java';
+  if (f.endsWith('.rs')) return 'Rust';
+  if (f.endsWith('.js')) return 'JavaScript';
+  if (/\.(cpp|cc|cxx|hpp)$/.test(f)) return 'C++17';
+  if (f.endsWith('.c') || f.endsWith('.h')) return 'C';
+  const src = String(code || '');
+  if (/\bfn\s+main\s*\(/.test(src)) return 'Rust';
+  if (/\bSystem\.out\b|^\s*import\s+java\./m.test(src)) return 'Java';
+  if (/\bconsole\.log\s*\(/.test(src)) return 'JavaScript';
+  if (/(^|\n)\s*(def\s+\w+\s*\(|print\()/.test(src) || /^\s*(import\s+\w+|from\s+\w+\s+import)/m.test(src)) return 'Python';
+  return 'C++17';
 }
+
+// E1: an explicit selector value wins only when it is canonical; never send anything else.
+function languageOf(value, filename, code) {
+  return CANONICAL_LANGS.includes(value) ? value : detectLang(filename, code);
+}
+
+// E5: team-aware view — prefer server team fields when present, keep the per-user shape otherwise.
+function bestVerdict(p) { return p._teamBest || p._best; }
+function bestScore(p) { return p._teamScore != null ? p._teamScore : p._score; }
+function isSolved(p) { const v = bestVerdict(p); return v === 'OK' || v === 'ANS'; }
+
+// E5: per-contest alias letter when the API sends one, problem code otherwise.
+function codeOf(p) { return p.alias || p.code; }
 
 function verdictLabel(p) {
   const t = STR[getLang()];
-  const v = p._live || p._best;
+  const v = p._live || bestVerdict(p);
   if (!v) return t.cockpit_todo;
-  return p._score != null ? `${v} ${p._score}` : v;
+  const score = bestScore(p);
+  return score != null ? `${v} ${score}` : v;
 }
 
 function verdictMeta(p) {
   const t = STR[getLang()];
   const live = p._live;
-  const best = p._best;
+  const best = bestVerdict(p);
   const v = live || best;
   const tries = p._tries ?? 0;
-  const score = p._score;
+  const score = bestScore(p);
   if (!v) return { main: t.cockpit_todo, icon: VERDICT_ICON.todo, sub: tries > 0 ? `${tries} ${t.cockpit_tries_l}` : t.cockpit_not_tried, tone: 'vcell-todo', isTodo: true };
   const isLive = live === 'QUE' || live === 'CMP' || live === 'TST';
   const icon = VERDICT_ICON[v] || '';
@@ -119,7 +145,7 @@ export default function ProblemCockpit({ contestId }) {
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (e.key === '/' && !typing) { e.preventDefault(); document.getElementById('pq')?.focus(); return; }
       if (typing) return;
-      if (e.key === 'j') { setKbNav(true); setCursor((c) => c + 1); }
+      if (e.key === 'j') { setKbNav(true); setCursor((c) => Math.min(c + 1, Math.max(0, filtered.length - 1))); }
       if (e.key === 'k') { setKbNav(true); setCursor((c) => Math.max(0, c - 1)); }
       if (e.key === 'o') {
         const el = document.querySelector(`[data-row="${cursor}"] a`);
@@ -138,7 +164,10 @@ export default function ProblemCockpit({ contestId }) {
     if (notes[p.id] !== undefined) return;
     try {
       const d = await api(`/api/notes?problem=${p.id}`);
-      setNotes((prev) => ({ ...prev, [p.id]: d.text || d.note || '' }));
+      // E4: the API answers { items: [...] } — take the newest note's text.
+      const items = Array.isArray(d?.items) ? d.items : [];
+      const latest = items.reduce((acc, n) => (!acc || Number(n.id || 0) >= Number(acc.id || 0) ? n : acc), null);
+      setNotes((prev) => ({ ...prev, [p.id]: latest ? String(latest.text || '') : String(d?.text || d?.note || '') }));
     } catch { setNotes((prev) => ({ ...prev, [p.id]: '' })); }
   }
 
@@ -156,7 +185,7 @@ export default function ProblemCockpit({ contestId }) {
       return;
     }
     if ((code || '').length > 512 * 1024) { toast(t.subm_too_large); return; }
-    const langGuess = language || detectLang(filename, code);
+    const langGuess = languageOf(language, filename, code);
     let s;
     try {
       s = await api(`/api/problems/${p.id}/submit`, { method: 'POST', body: JSON.stringify({ code, filename, sampleOnly: !!sampleOnly, language: langGuess }) });
@@ -181,11 +210,11 @@ export default function ProblemCockpit({ contestId }) {
     const t0 = performance.now();
     const ql = q.toLowerCase();
     let arr = items.filter((p) => {
-      if (ql && !`${p.code || ''} ${p.name || ''}`.toLowerCase().includes(ql)) return false;
-      if (hideSolved && (p._best === 'OK' || p._best === 'ANS')) return false;
-      if (filters.status === 'solved' && !(p._best === 'OK' || p._best === 'ANS')) return false;
-      if (filters.status === 'tried' && !(p._tries > 0 && p._best !== 'OK' && p._best !== 'ANS')) return false;
-      if (filters.status === 'todo' && (p._best || (p._tries || 0) > 0)) return false;
+      if (ql && !`${p.code || ''} ${p.alias || ''} ${p.name || ''}`.toLowerCase().includes(ql)) return false;
+      if (hideSolved && isSolved(p)) return false;
+      if (filters.status === 'solved' && !isSolved(p)) return false;
+      if (filters.status === 'tried' && !((p._tries ?? 0) > 0 && !isSolved(p))) return false;
+      if (filters.status === 'todo' && (bestVerdict(p) || (p._tries ?? 0) > 0)) return false;
       if (filters.difficulty && String(p.difficulty || '') !== String(filters.difficulty)) return false;
       if (filters.tag && !(p.tags || []).includes(filters.tag)) return false;
       if (filters.setter && (p.setter || '') !== filters.setter) return false;
@@ -197,7 +226,7 @@ export default function ProblemCockpit({ contestId }) {
       if (sort.key === 'name') return String(a.name || '').localeCompare(String(b.name || '')) * dir;
       if (sort.key === 'solves') return ((a.solvesPct || 0) - (b.solvesPct || 0)) * dir;
       if (sort.key === 'difficulty') return (String(a.difficulty || '').localeCompare(String(b.difficulty || ''))) * dir;
-      if (sort.key === 'score') return ((a._score || 0) - (b._score || 0)) * dir;
+      if (sort.key === 'score') return ((bestScore(a) || 0) - (bestScore(b) || 0)) * dir;
       if (sort.key === 'deadline') {
         const ta = a.effectiveDeadline ? new Date(a.effectiveDeadline).getTime() : Infinity;
         const tb = b.effectiveDeadline ? new Date(b.effectiveDeadline).getTime() : Infinity;
@@ -210,10 +239,15 @@ export default function ProblemCockpit({ contestId }) {
     return arr;
   }, [items, q, hideSolved, filters, sort]);
 
+  // E5: keep the keyboard cursor inside the filtered list after search/filter changes.
+  useEffect(() => {
+    setCursor((c) => Math.min(c, Math.max(0, filtered.length - 1)));
+  }, [filtered.length]);
+
   const stats = useMemo(() => {
     if (!items) return { solved: 0, total: 0, points: 0 };
-    const solved = items.filter((p) => p._best === 'OK' || p._best === 'ANS').length;
-    const points = items.reduce((s, p) => s + (p._score || 0), 0);
+    const solved = items.filter((p) => isSolved(p)).length;
+    const points = items.reduce((s, p) => s + (bestScore(p) || 0), 0);
     return { solved, total: items.length, points };
   }, [items]);
 
@@ -228,7 +262,7 @@ export default function ProblemCockpit({ contestId }) {
 
   const recommendations = useMemo(() => {
     if (!items) return { upsolve: [] };
-    const upsolve = items.filter((p) => (p._tries || 0) > 0 && !(p._best === 'OK' || p._best === 'ANS')).slice(0, 5);
+    const upsolve = items.filter((p) => (p._tries || 0) > 0 && !isSolved(p)).slice(0, 5);
     return { upsolve };
   }, [items]);
 
@@ -290,7 +324,7 @@ export default function ProblemCockpit({ contestId }) {
               {filtered.map((p, i) => (
                 <Fragment key={p.id}>
                   <tr data-row={i} className={`doc-row ${i === cursor && kbNav ? 'row-cursor' : ''} ${p._flashAt ? (p._flashAt % 2 ? 'row-flash-a' : 'row-flash-b') : ''}`} style={i === cursor && kbNav ? { background: 'rgb(128 140 155 / 0.14)', borderTop: '1px solid var(--border)' } : { borderTop: '1px solid var(--border)' }} onMouseEnter={() => setKbNav(false)}>
-                    <td className="py-[18px] pl-5 pr-2 prob-code text-[13px]" style={{ color: 'var(--muted)' }}>{p.code}</td>
+                    <td className="py-[18px] pl-5 pr-2 prob-code text-[13px]" style={{ color: 'var(--muted)' }}>{codeOf(p)}</td>
                     <td className="px-5 py-[18px]">
                       <span className="flex items-center gap-2.5">
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none" style={{ color: 'var(--muted)' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
@@ -319,7 +353,7 @@ export default function ProblemCockpit({ contestId }) {
                     </td>
                   </tr>
                   {open === p.id && (
-                    <tr><td colSpan={hasDeadlines ? 6 : 5}><RowDrawer problem={p} contestId={contestId} note={notes[p.id]} setNote={(v) => setNotes((prev) => ({ ...prev, [p.id]: v }))} onSaveNote={() => saveNotes(p)} /></td></tr>
+                    <tr><td colSpan={hasDeadlines ? 6 : 5}><RowDrawer problem={p} contestId={contestId} note={notes[p.id]} setNote={(v) => setNotes((prev) => ({ ...prev, [p.id]: v }))} onSaveNote={() => saveNotes(p)} onClose={() => setOpen(null)} /></td></tr>
                   )}
                 </Fragment>
               ))}
@@ -331,7 +365,7 @@ export default function ProblemCockpit({ contestId }) {
           <div className="text-sm">
             <div>
               <strong className="type-h2">{t.cockpit_upsolve} ({recommendations.upsolve.length})</strong>
-              <ul className="mt-1 flex flex-col">{recommendations.upsolve.map((p) => <li key={p.id} className="py-1" style={{ borderTop: '1px solid var(--border)' }}><a className="font-medium no-underline hover:underline focus-ring rounded" href={`/contests/${contestId}/problems/${p.id}`}>{p.code} {p.name}</a> <span className="text-xs" style={{ color: 'var(--muted)' }}>{p._tries} {t.cockpit_tries_l}</span></li>)}</ul>
+              <ul className="mt-1 flex flex-col">{recommendations.upsolve.map((p) => <li key={p.id} className="py-1" style={{ borderTop: '1px solid var(--border)' }}><a className="font-medium no-underline hover:underline focus-ring rounded" href={`/contests/${contestId}/problems/${p.id}`}>{codeOf(p)} {p.name}</a> <span className="text-xs" style={{ color: 'var(--muted)' }}>{p._tries} {t.cockpit_tries_l}</span></li>)}</ul>
             </div>
           </div>
         ) : null}
@@ -341,13 +375,13 @@ export default function ProblemCockpit({ contestId }) {
   );
 }
 
-function RowDrawer({ problem, contestId, note, setNote, onSaveNote }) {
+function RowDrawer({ problem, contestId, note, setNote, onSaveNote, onClose }) {
   const t = STR[getLang()];
   const [hist, setHist] = useState(null);
   useEffect(() => { api(`/api/submits?problem=${problem.id}&me=1&limit=3`).then((d) => setHist(d.items || [])).catch(() => setHist([])); }, [problem.id]);
   if (hist === null) return <Skeleton lines={2} />;
   return (
-    <Drawer open title={`${problem.code} ${t.cockpit_history_l}`} onClose={() => {}}>
+    <Drawer open title={`${codeOf(problem)} ${t.cockpit_history_l}`} onClose={onClose}>
       <div className="flex flex-col gap-1">
         {hist.map((s) => <div key={s.id}>#{s.id} {s.lang} <VerdictPill verdict={s.status} /> <a className="underline" href={`/results/${s.id}`}>{t.cockpit_view_diff}</a></div>)}
         {!hist.length ? <span className="text-muted">{t.cockpit_no_submits}</span> : null}
@@ -383,7 +417,7 @@ function SubmitModal({ problem, onClose, onSubmit }) {
 
   function submit() {
     if (!FILENAME_RE.test(filename)) { setFnameError(suggestFilename(filename)); return; }
-    onSubmit(problem, code, filename, sampleOnly, language || detectLang(filename, code));
+    onSubmit(problem, code, filename, sampleOnly, languageOf(language, filename, code));
   }
 
   return (
@@ -399,10 +433,7 @@ function SubmitModal({ problem, onClose, onSubmit }) {
           <input type="file" onChange={(e) => onFile(e.target.files?.[0])} aria-label={t.cockpit_file_aria} />
           <Select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label={t.cockpit_lang_aria}>
             <option value="">auto ({detectLang(filename, code)})</option>
-            <option value="cpp">cpp</option>
-            <option value="c">c</option>
-            <option value="python">python</option>
-            <option value="java">java</option>
+            {CANONICAL_LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
           </Select>
         </div>
         <label className="block text-sm mt-2">{t.prob_code}<CodeEditor value={code} onChange={setCode} filename={filename} height="240px" onSubmit={submit} placeholder={t.cockpit_paste_ph} /></label>

@@ -1,11 +1,38 @@
 // Submit page — dedicated solution upload. Opened from problem view via "Submit solution".
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, FILENAME_RE, suggestFilename, STR, getLang } from '../../../../../../lib/client';
-import { Button, Card, CodeEditor, EmptyState, Input, Skeleton } from '../../../../../../components/ui';
+import { Button, Card, CodeEditor, DiffView, EmptyState, Input, Select, Skeleton, VerdictPill } from '../../../../../../components/ui';
 import EyebrowFx from '../../../../../../components/EyebrowFx';
+
+// E1: the API only accepts canonical language ids (validators.LANGUAGES); the old
+// lowercase ids (cpp/python/java) are rejected with LANG_OFF.
+const CANONICAL_LANGS = ['C', 'C++17', 'Java', 'Python', 'Rust', 'JavaScript'];
+const LIVE = ['QUE', 'CMP', 'TST'];
+
+// E1: filename extension wins; conservative code hints only when there is no extension.
+function detectLang(filename, code) {
+  const f = String(filename || '').toLowerCase();
+  if (f.endsWith('.py')) return 'Python';
+  if (f.endsWith('.java')) return 'Java';
+  if (f.endsWith('.rs')) return 'Rust';
+  if (f.endsWith('.js')) return 'JavaScript';
+  if (/\.(cpp|cc|cxx|hpp)$/.test(f)) return 'C++17';
+  if (f.endsWith('.c') || f.endsWith('.h')) return 'C';
+  const src = String(code || '');
+  if (/\bfn\s+main\s*\(/.test(src)) return 'Rust';
+  if (/\bSystem\.out\b|^\s*import\s+java\./m.test(src)) return 'Java';
+  if (/\bconsole\.log\s*\(/.test(src)) return 'JavaScript';
+  if (/(^|\n)\s*(def\s+\w+\s*\(|print\()/.test(src) || /^\s*(import\s+\w+|from\s+\w+\s+import)/m.test(src)) return 'Python';
+  return 'C++17';
+}
+
+// E1: an explicit selector value wins only when it is canonical; never send anything else.
+function languageOf(value, filename, code) {
+  return CANONICAL_LANGS.includes(value) ? value : detectLang(filename, code);
+}
 
 export default function ProblemSubmitPage({ params }) {
   const t = STR[getLang()];
@@ -14,15 +41,39 @@ export default function ProblemSubmitPage({ params }) {
   const [failed, setFailed] = useState(false);
   const [code, setCode] = useState('');
   const [fn, setFn] = useState('solution.cpp');
+  const [language, setLanguage] = useState('');
   const [sampleOnly, setSampleOnly] = useState(false);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
   const [fnameError, setFnameError] = useState('');
+  const [sample, setSample] = useState(null);
+  const pollRef = useRef(null);
 
   useEffect(() => {
     api(`/api/problems/${params.pid}`).then(setP).catch(() => setFailed(true));
   }, [params.pid]);
+
+  // E1: stop the sample poll when leaving the page.
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  function stopPoll() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }
+
+  // E1: poll the submit row until the judge reports a terminal verdict.
+  function watchSubmit(id) {
+    stopPoll();
+    let ticks = 0;
+    pollRef.current = setInterval(async () => {
+      ticks += 1;
+      try {
+        const d = await api(`/api/submits/${id}`, { noCache: true });
+        setSample(d);
+        if (!LIVE.includes(d.status)) { stopPoll(); setMsg(''); }
+      } catch { if (ticks > 30) stopPoll(); }
+    }, 1200);
+  }
 
   function onFile(f) {
     if (!f) return;
@@ -39,10 +90,13 @@ export default function ProblemSubmitPage({ params }) {
     if (!FILENAME_RE.test(fn)) { setFnameError(suggestFilename(fn)); setMsg(`${t.subm_invalid_fn} ${suggestFilename(fn)}`); return; }
     setBusy(true);
     setMsg(t.subm_running_samples);
+    setSample(null);
     try {
-      const r = await api('/api/submits/sample-run', { method: 'POST', body: JSON.stringify({ contestId: p.contestId, problemId: p.id, code, filename: fn, sampleOnly: true }) });
+      const r = await api('/api/submits/sample-run', { method: 'POST', body: JSON.stringify({ contestId: p.contestId, problemId: p.id, code, filename: fn, sampleOnly: true, language: languageOf(language, fn, code) }) });
       setMsg(t.subm_sample_queued.replace('{id}', String(r.id)));
-    } catch (e) { setMsg(`${t.subm_sample_failed} ${e.message}`); }
+      setSample({ id: r.id, status: r.status || 'QUE' });
+      watchSubmit(r.id);
+    } catch (e) { setMsg(`${t.subm_sample_failed} ${e.message}`); setSample(null); }
     finally { setBusy(false); }
   }
 
@@ -56,7 +110,7 @@ export default function ProblemSubmitPage({ params }) {
     setBusy(true);
     setMsg(t.subm_submitting);
     try {
-      const r = await api(`/api/problems/${p.id}/submit`, { method: 'POST', body: JSON.stringify({ code, filename: fn, sampleOnly }) });
+      const r = await api(`/api/problems/${p.id}/submit`, { method: 'POST', body: JSON.stringify({ code, filename: fn, sampleOnly, language: languageOf(language, fn, code) }) });
       setMsg(`submit #${r.id} ${r.status}`);
       router.push(`/results/${r.id}`);
     } catch (e) { setMsg(`${t.subm_failed} ${e.message}`); }
@@ -65,6 +119,13 @@ export default function ProblemSubmitPage({ params }) {
 
   if (failed) return <div className="mx-auto w-full max-w-3xl py-2"><EmptyState line={t.pedit_not_found} /></div>;
   if (!p) return <div className="mx-auto w-full max-w-3xl py-2"><Skeleton lines={5} /></div>;
+
+  const sampleTests = Array.isArray(sample?.perTest) ? sample.perTest : [];
+  const sampleLive = sample ? LIVE.includes(sample.status) : false;
+  const samplePassed = sampleTests.filter((x) => x.verdict === 'OK' || x.verdict === 'ANS').length;
+  const sampleFail = sampleTests.find((x) => x.expected != null || x.got != null) || null;
+  const sampleExpected = sampleFail?.expected ?? sample?.expected;
+  const sampleGot = sampleFail?.got ?? sample?.got;
 
   return (
     <div className="mx-auto w-full max-w-3xl py-2">
@@ -95,6 +156,13 @@ export default function ProblemSubmitPage({ params }) {
         </div>
         <div className="flex gap-2 items-center flex-wrap text-sm">
           <input type="file" onChange={(e) => onFile(e.target.files?.[0])} aria-label={t.subm_upload_aria} className="text-sm max-w-full" />
+          <span className="flex gap-2 items-center">
+            <span style={{ color: 'var(--muted)' }}>{t.cockpit_lang_aria}</span>
+            <Select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label={t.cockpit_lang_aria} className="!w-auto !py-1.5">
+              <option value="">auto ({detectLang(fn, code)})</option>
+              {CANONICAL_LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
+            </Select>
+          </span>
           {fnameError ? <Button variant="secondary" className="!py-1" onClick={() => { setFn(fnameError); setFnameError(''); }}>{t.cockpit_apply} {fnameError}</Button> : null}
         </div>
         <label className="block text-sm">
@@ -112,6 +180,31 @@ export default function ProblemSubmitPage({ params }) {
           <Button variant="secondary" onClick={sampleRun} disabled={busy || !code.trim()}>{t.sample_run}</Button>
         </div>
         {msg ? <p role="status" className="text-sm">{msg}</p> : null}
+        {sample ? (
+          <div className="border rounded-xl p-3 text-sm" role="status" aria-live="polite" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex gap-2 items-center flex-wrap">
+              <VerdictPill verdict={sample.status} />
+              <Link className="underline focus-ring rounded" href={`/results/${sample.id}`} prefetch>{t.res_submit_hash.replace('{id}', String(sample.id))}</Link>
+              {sampleLive ? <span style={{ color: 'var(--muted)' }}>{t.res_waiting}{sample.testsTotal ? ` ${sample.testsDone || 0}/${sample.testsTotal}` : ''}</span> : null}
+              {!sampleLive && sampleTests.length ? <span style={{ color: 'var(--muted)' }}>{t.res_passed.replace('{a}', String(samplePassed)).replace('{b}', String(sampleTests.length))}</span> : null}
+              <Link className="ml-auto underline focus-ring rounded" href={`/results/${sample.id}`}>{t.cockpit_view_diff}</Link>
+            </div>
+            {sampleTests.length ? (
+              <ul className="mt-2">
+                {sampleTests.map((x) => (
+                  <li key={x.n} className="flex gap-2 items-center flex-wrap py-1" style={{ borderTop: '1px solid var(--border)' }}>
+                    <span className="tabular-nums">#{x.n}</span>
+                    <VerdictPill verdict={x.verdict} />
+                    {x.timeMs != null ? <span className="tabular-nums" style={{ color: 'var(--muted)' }}>{x.timeMs}ms</span> : null}
+                    {x.msg ? <span style={{ color: 'var(--muted)' }}>{x.msg}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {sampleExpected != null || sampleGot != null ? <div className="mt-2"><DiffView expected={sampleExpected || ''} got={sampleGot || ''} /></div> : null}
+            {sample.compileLog ? <pre className="text-xs overflow-auto mt-2 type-mono" style={{ color: 'var(--muted)' }}>{sample.compileLog}</pre> : null}
+          </div>
+        ) : null}
       </Card>
     </div>
   );
