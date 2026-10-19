@@ -3,6 +3,7 @@
 'use client';
 import { useState } from 'react';
 import { api, STR, getLang } from '../lib/client';
+import { isEnabled } from '../lib/flags';
 import { Button, Input } from './ui';
 import { toast } from './ui/Toast';
 
@@ -19,6 +20,7 @@ const QUICK_TABS = { blank: 'quick_tab_blank', clone: 'quick_clone', zip: 'quick
 
 export default function ProblemQuickAdd({ contestId, items, onDone }) {
   const t = STR[getLang()];
+  const tabs = ['blank', 'clone', ...(isEnabled('polygonImport') ? ['zip'] : []), ...(isEnabled('pdfImport') ? ['pdf'] : [])];
   const [mode, setMode] = useState('blank');
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -51,7 +53,7 @@ export default function ProblemQuickAdd({ contestId, items, onDone }) {
   return (
     <div className="my-2">
       <div className="flex gap-1 flex-wrap" role="tablist" aria-label={t.quick_add_aria}>
-        {['blank', 'clone', 'zip', 'pdf'].map((id) => (
+        {tabs.map((id) => (
           <Button key={id} variant={mode === id ? 'primary' : 'secondary'} onClick={() => setMode(id)} className="!py-1">{t[QUICK_TABS[id]]}</Button>
         ))}
         <span className="text-xs text-muted self-center ml-1">{t.quick_next_letter} {nextLetterCode(items)}</span>
