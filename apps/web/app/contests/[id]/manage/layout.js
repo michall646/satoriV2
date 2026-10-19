@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, STR, getLang } from '../../../../lib/client';
-import { EmptyState, ErrorState, Skeleton } from '../../../../components/ui';
+import { Button, EmptyState, ErrorState, Skeleton } from '../../../../components/ui';
 import ManageNav from '../../../../components/manage/ManageNav';
 import { ManageContext } from '../../../../components/manage/context';
 
@@ -19,7 +19,7 @@ export default function ManageLayout({ children, params }) {
       const c = await api(`/api/contests/${params.id}`);
       setContest(c);
     } catch (e) {
-      setStatus(String(e.message).startsWith('403') ? 'forbidden' : 'error');
+      setStatus(e?.status === 403 ? 'forbidden' : 'error');
       return;
     }
     try {
@@ -27,7 +27,7 @@ export default function ManageLayout({ children, params }) {
       setCounts((prev) => ({ ...prev, pending: (mem.pending || []).length }));
       setStatus('ok');
     } catch (e) {
-      setStatus(String(e.message).startsWith('401') || String(e.message).startsWith('403') ? 'forbidden' : 'error');
+      setStatus(e?.status === 401 || e?.status === 403 ? 'forbidden' : 'error');
       return;
     }
     try {

@@ -58,7 +58,9 @@ export default function NotificationsInbox({ compact, preview }) {
         {latest.map((n) => (
           <li key={n.id} className={`flex items-center gap-2 py-2 border-b last:border-0 text-sm ${n.read ? 'opacity-60' : ''}`} style={{ borderColor: 'var(--border)' }}>
             <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: n.read ? 'var(--border)' : 'var(--accent)' }} />
-            <span className="flex-1 min-w-0 truncate">{n.text || n.payload?.message || n.type}</span>
+            {n.payload?.verdict ? <VerdictPill verdict={n.payload.verdict} className="!min-w-0 !px-1.5 !py-0 !text-[10px] shrink-0" /> : null}
+            {n.payload?.submitId ? <span className="type-mono text-xs shrink-0">#{n.payload.submitId}</span> : null}
+            <span className="flex-1 min-w-0 truncate">{n.text || n.payload?.message || (n.payload?.verdict ? '' : n.type)}</span>
             {n.at ? <span className="text-[11px] shrink-0 tabular-nums" style={{ color: 'var(--muted)' }}>{new Date(n.at).toLocaleDateString()}</span> : null}
           </li>
         ))}

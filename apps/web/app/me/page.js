@@ -85,7 +85,7 @@ function Checklist({ me, orgName }) {
 function Segmented({ tabs, active, onChange }) {
   if (!tabs.length) return null;
   return (
-    <div role="tablist" aria-label={STR[getLang()].me_sections_aria} className="flex items-center gap-0.5">
+    <div role="tablist" aria-label={STR[getLang()].me_sections_aria} className="flex items-center gap-0.5 max-w-full overflow-x-auto">
       {tabs.map((tab) => {
         const on = active === tab.id;
         return (
@@ -94,7 +94,7 @@ function Segmented({ tabs, active, onChange }) {
             role="tab"
             aria-selected={on}
             onClick={() => onChange(tab.id)}
-            className={`px-3 pt-2 pb-2.5 text-sm focus-ring transition-colors ${on ? 'font-semibold' : 'font-medium opacity-60 hover:opacity-100'}`}
+            className={`px-2 sm:px-3 pt-2 pb-2.5 text-sm focus-ring transition-colors whitespace-nowrap ${on ? 'font-semibold' : 'font-medium opacity-60 hover:opacity-100'}`}
             style={on
               ? { color: 'var(--fg)', boxShadow: 'inset 0 -2px 0 var(--accent)' }
               : { color: 'var(--muted)' }}
@@ -199,7 +199,7 @@ export default function MePage() {
       const r = await api('/api/me/password', { method: 'POST', body: JSON.stringify({ old: pw.old, new: pw.next }) });
       setPw({ old: '', next: '' });
       toast(`${t.me_pw_changed}${r.revokedOthers ? ` — ${r.revokedOthers} ${t.me_pw_revoked}` : ''}`, 'success');
-    } catch (e) { toast(String(e.message || '').startsWith('403') ? t.me_pw_wrong : t.me_pw_failed); }
+    } catch (e) { toast(e?.status === 403 ? t.me_pw_wrong : t.me_pw_failed); }
     finally { setPwBusy(false); }
   }
 
@@ -290,7 +290,7 @@ export default function MePage() {
       {active === 'overview' ? (
         <Card className="p-0 overflow-hidden">
           <div className="grid lg:grid-cols-12">
-            <div className="lg:col-span-8 flex flex-col divide-y divide-border">
+            <div className="min-w-0 lg:col-span-8 flex flex-col divide-y divide-border">
               <section className="p-5 md:p-6">
                 <SectionHead label={t.auth_completion} meta={`${complete}/5`} />
                 <p className="text-sm mt-1.5" style={{ color: 'var(--muted)' }}>
@@ -348,7 +348,7 @@ export default function MePage() {
             </div>
 
             {/* Rail */}
-            <aside className="lg:col-span-4 flex flex-col divide-y divide-border border-t lg:border-t-0 lg:border-l border-border">
+            <aside className="min-w-0 lg:col-span-4 flex flex-col divide-y divide-border border-t lg:border-t-0 lg:border-l border-border">
               <section className="p-5 md:p-6">
                 <SectionHead label={t.me_at_glance} />
                 <div className="mt-3 grid grid-cols-2 gap-4">
@@ -387,7 +387,7 @@ export default function MePage() {
       {active === 'security' ? (
         <Card className="p-0 overflow-hidden">
           <div className="grid lg:grid-cols-12">
-            <div className="lg:col-span-8 flex flex-col divide-y divide-border">
+            <div className="min-w-0 lg:col-span-8 flex flex-col divide-y divide-border">
               <section className="p-5 md:p-6">
                 <SectionHead label={t.auth_sessions} meta={String(me.sessions?.length || 1)} action={<span className="text-xs" style={{ color: 'var(--muted)' }}>{t.me_current_highlighted}</span>} />
 
@@ -440,7 +440,7 @@ export default function MePage() {
               </section>
             </div>
 
-            <aside className="lg:col-span-4 border-t lg:border-t-0 lg:border-l border-border p-5 md:p-6">
+            <aside className="min-w-0 lg:col-span-4 border-t lg:border-t-0 lg:border-l border-border p-5 md:p-6">
               <SectionHead label={t.me_how_sessions} />
               <ul className="text-sm mt-2 flex flex-col gap-1.5 list-disc ml-4" style={{ color: 'var(--muted)' }}>
                 <li>{t.me_how_1}</li>
