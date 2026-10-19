@@ -39,7 +39,7 @@ function filterBoard(c, me, body) {
 async function handle(req, res, url, p, m) {
   const u = url;
   // Communications were extracted to routes/comms.js; delegate before contest routes.
-  if (/^\/api\/contests\/\d+\/(clarifications|news|subpages)(\/|$)/.test(p)) {
+  if (/^\/api\/contests\/\d+\/(clarifications|news(?:\.rss)?|subpages)(\/|$)/.test(p)) {
     return comms.handle(req, res, url, p, m);
   }
   // contests list/create

@@ -62,13 +62,26 @@ async function handle(req, res, url, p, m) {
   if (p === '/api/orgs' && m === 'GET') return send(res, 200, { items: store.all('organizations') });
   if (p === '/api/search' && m === 'GET') {
     const q = (u.searchParams.get('q') || '').toLowerCase();
-    if (!q) return send(res, 200, { contests: [], problems: [], users: [] });
+    if (!q) return send(res, 200, { contests: [], problems: [], users: [], announcements: [] });
+    // E8/F2: announcements match title + markdown body; scheduled-future posts
+    // are not searchable until they are actually visible.
+    const now = Date.now();
+    const announcements = store.all('news')
+      .filter((n) => {
+        const at = Date.parse(n.scheduledAt || '');
+        if (Number.isFinite(at) && at > now) return false;
+        return `${n.title || ''} ${n.bodyMd || n.bodyHtml || ''}`.toLowerCase().includes(q);
+      })
+      .map((n) => ({ id: n.id, contestId: n.contestId, title: n.title || '' }))
+      .slice(0, 20);
     return send(res, 200, {
       contests: store.all('contests').filter((c) => (c.name + c.description).toLowerCase().includes(q)).slice(0, 20),
       problems: store.all('problems').filter((x) => x.name.toLowerCase().includes(q)).slice(0, 20),
       users: store.all('users').filter((x) => x.login.includes(q)).map((x) => ({ id: x.id, login: x.login })).slice(0, 20),
+      announcements,
     });
   }
+
 
   let mt;
   // V1 compat redirects (protect CLI-in-source comments: keep /contest/<id>/problems/<pid>)

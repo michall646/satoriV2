@@ -1,8 +1,9 @@
 // Satori V2 — contest communications: clarifications, news, subpages.
 // Extracted from routes/contests.js so security rules (A2/A3) live in one place.
+// F2 (Batch 2): scheduled announcements, in-app fan-out, RSS 2.0 feed, read state.
 'use strict';
 const { store } = require('../lib/store');
-const { send, readBody, rateLimited } = require('../lib/http');
+const { send, sendText, readBody, rateLimited } = require('../lib/http');
 const { authUser, needAuth, forbid, audit, contestRole, canManageContest } = require('../lib/authz');
 
 const NEWS_FIELDS = ['title', 'bodyMd', 'bodyHtml', 'scheduledAt', 'attachments', 'email', 'inApp', 'pinned', 'publishedAt', 'tags'];
@@ -29,21 +30,167 @@ function badTitle(res) {
   return send(res, 422, { error: { code: 'TITLE', message: 'Title required.', hint: 'Add a title before publishing.' } });
 }
 
+// ---- F2 announcement helpers ----
+
+// A post with scheduledAt in the future is invisible to non-admins until due.
+// Admin views (manage page) still receive it so it can be edited/deleted.
+function scheduledInFuture(row, nowMs) {
+  if (!row || row.scheduledAt == null || row.scheduledAt === '') return false;
+  const t = Date.parse(row.scheduledAt);
+  return Number.isFinite(t) && t > (nowMs == null ? Date.now() : nowMs);
+}
+function newsTime(row) {
+  const raw = row && (row.scheduledAt || row.publishedAt || row.createdAt);
+  const t = Date.parse(raw || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+// One notification per member (members + admins + legacy roles), author skipped.
+function announcementRecipients(contest, authorId) {
+  const ids = new Set();
+  for (const id of (contest.members || [])) ids.add(String(id));
+  for (const id of (contest.admins || [])) ids.add(String(id));
+  for (const id of Object.keys(contest.roles || {})) ids.add(String(id));
+  ids.delete(String(authorId));
+  return [...ids];
+}
+function fanoutAnnouncement(contest, news, authorId) {
+  if (!news || news.inApp === false) return 0;
+  const at = new Date().toISOString();
+  let notified = 0;
+  for (const rawId of announcementRecipients(contest, authorId)) {
+    const uid = Number(rawId);
+    store.insert('notifications', {
+      userId: Number.isFinite(uid) ? uid : rawId,
+      type: 'announcement',
+      payload: { contestId: contest.id, newsId: news.id, title: String(news.title || '') },
+      read: false,
+      at,
+    });
+    notified += 1;
+  }
+  return notified;
+}
+
+// ---- F2 RSS 2.0 ----
+
+function xmlEscape(value) {
+  return String(value == null ? '' : value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+function rssDate(value) {
+  const t = Date.parse(value || '');
+  return (Number.isFinite(t) ? new Date(t) : new Date()).toUTCString();
+}
+// Links point at the web app, not the API host. Deployment sets SATORI_WEB_BASE;
+// otherwise the caller's Origin/Host is the best available guess.
+function webBase(req) {
+  const env = String(process.env.SATORI_WEB_BASE || '').trim();
+  if (env) return env.replace(/\/+$/, '');
+  const origin = String((req.headers && req.headers.origin) || '').trim();
+  if (/^https?:\/\//i.test(origin)) return origin.replace(/\/+$/, '');
+  const host = String((req.headers && req.headers.host) || '').trim();
+  return host ? `http://${host}` : '';
+}
+function newsRssXml(req, contest, rows) {
+  const base = webBase(req);
+  const home = `${base}/contests/${contest.id}/announcements`;
+  const items = [...rows]
+    .sort((a, b) => newsTime(b) - newsTime(a))
+    .map((n) => {
+      const date = n.scheduledAt || n.publishedAt || n.createdAt;
+      return [
+        '    <item>',
+        `      <title>${xmlEscape(n.title || '(untitled)')}</title>`,
+        `      <link>${xmlEscape(`${home}#announcement-${n.id}`)}</link>`,
+        `      <description>${xmlEscape(n.bodyMd || n.bodyHtml || '')}</description>`,
+        `      <pubDate>${rssDate(date)}</pubDate>`,
+        '    </item>',
+      ].join('\n');
+    })
+    .join('\n');
+  const lines = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<rss version="2.0">',
+    '  <channel>',
+    `    <title>${xmlEscape(`${contest.name || 'Contest'} - Announcements`)}</title>`,
+    `    <link>${xmlEscape(home)}</link>`,
+    `    <description>${xmlEscape(contest.description || `Announcements for ${contest.name || 'this contest'}`)}</description>`,
+    '    <language>en</language>',
+  ];
+  if (items) lines.push(items);
+  lines.push('  </channel>', '</rss>', '');
+  return lines.join('\n');
+}
+function sendNewsRss(req, res, contest) {
+  const me = authUser(req);
+  const admin = canManageContest(me, contest);
+  const now = Date.now();
+  const rows = store.query('news', (x) => String(x.contestId) === String(contest.id) && (admin || !scheduledInFuture(x, now)));
+  return sendText(res, 200, newsRssXml(req, contest, rows), 'application/rss+xml; charset=utf-8');
+}
+
 async function handle(req, res, url, p, m) {
-  let mt = p.match(/^\/api\/contests\/(\d+)\/(clarifications|news|subpages)$/);
+  // F2: RSS feed. contests.js forwards only the exact /news path to this module,
+  // so the canonical .rss route is also reachable through routes/meta.js.
+  let mt = p.match(/^\/api\/contests\/(\d+)\/news\.rss$/);
+  if (mt && m === 'GET') {
+    const c = store.get('contests', mt[1]);
+    if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } });
+    return sendNewsRss(req, res, c);
+  }
+
+  // F2: per-user read state. Stored on the news row as { userId: readAt };
+  // never returned raw (GET /news projects a boolean `read` instead).
+  mt = p.match(/^\/api\/contests\/(\d+)\/news\/(\d+)\/read$/);
+  if (mt && m === 'POST') {
+    const c = store.get('contests', mt[1]);
+    if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } });
+    const me = needAuth(req, res);
+    if (!me) return true;
+    if (!isMember(c, me.id)) return notMember(res);
+    const row = store.get('news', mt[2]);
+    // Scheduled posts stay invisible, so they cannot be marked read either.
+    if (!row || String(row.contestId) !== String(c.id) || (!canManageContest(me, c) && scheduledInFuture(row))) {
+      return send(res, 404, { error: { code: 'NO_NEWS', message: 'Announcement not found.', hint: 'Reload the announcements list.' } });
+    }
+    const reads = { ...(row.reads || {}), [String(me.id)]: new Date().toISOString() };
+    store.update('news', row.id, { reads });
+    return send(res, 200, { ok: true, newsId: row.id, read: true });
+  }
+
+  mt = p.match(/^\/api\/contests\/(\d+)\/(clarifications|news|subpages)$/);
   if (mt && (m === 'GET' || m === 'POST')) {
     const c = store.get('contests', mt[1]);
     if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } });
     const act = mt[2];
     const col = act === 'clarifications' ? 'clarifications' : act;
     if (m === 'GET') {
+      // RSS is also reachable on the delegated /news path (?format=rss).
+      if (act === 'news' && url.searchParams.get('format') === 'rss') return sendNewsRss(req, res, c);
       const me = authUser(req);
-      const rows = store.query(col, (x) => String(x.contestId) === String(c.id));
-      const items = rows.map((x) => ({
-        ...x,
-        mine: Boolean(me && String(x.authorId) === String(me.id)),
-        answeredByLogin: x.answeredBy ? ((store.get('users', x.answeredBy) || {}).login || null) : null,
-      }));
+      const admin = act === 'news' && canManageContest(me, c);
+      const now = Date.now();
+      const rows = store.query(col, (x) => String(x.contestId) === String(c.id) && (act !== 'news' || admin || !scheduledInFuture(x, now)));
+      const items = rows.map((x) => {
+        const out = {
+          ...x,
+          mine: Boolean(me && String(x.authorId) === String(me.id)),
+          answeredByLogin: x.answeredBy ? ((store.get('users', x.answeredBy) || {}).login || null) : null,
+        };
+        if (act !== 'news') return out;
+        // Never leak other users' read receipts; expose only the caller's state.
+        const reads = x.reads || {};
+        delete out.reads;
+        out.read = Boolean(me && reads[String(me.id)]);
+        if (admin) out.readCount = Object.keys(reads).length;
+        return out;
+      });
       const canAnswer = act === 'clarifications' && Boolean(me && canManageContest(me, c));
       return send(res, 200, { items, canAnswer });
     }
@@ -76,8 +223,10 @@ async function handle(req, res, url, p, m) {
       const row = pickFields(b, NEWS_FIELDS);
       if (!String(row.title || '').trim()) return badTitle(res);
       const out = store.insert('news', { ...row, contestId: c.id, authorId: me.id, createdAt: new Date().toISOString() });
-      audit(me.id, 'contest.news.create', `contest:${c.id}`, { newsId: out.id });
-      return send(res, 201, out);
+      // F2: in-app fan-out is real; the email flag is still a no-op (no mailer yet).
+      const notified = fanoutAnnouncement(c, out, me.id);
+      audit(me.id, 'contest.news.create', `contest:${c.id}`, { newsId: out.id, notified });
+      return send(res, 201, { ...out, notified });
     }
     const row = pickFields(b, SUBPAGE_FIELDS);
     if (!String(row.title || '').trim()) return badTitle(res);
