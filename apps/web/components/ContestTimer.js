@@ -27,23 +27,55 @@ export default function ContestTimer() {
   const t = STR[getLang()];
 
   const [items, setItems] = useState(null);
+  const [contest, setContest] = useState(null);
 
   useEffect(() => {
     if (!contestId) return;
     let live = true;
     setItems(null);
-    api(`/api/contests/${contestId}/problems`)
-      .then((d) => { if (live) setItems(d.items || []); })
-      .catch(() => { if (live) setItems([]); });
+    setContest(null);
+    Promise.all([
+      api(`/api/contests/${contestId}/problems`).then((d) => d.items || []).catch(() => []),
+      api(`/api/contests/${contestId}`).catch(() => null),
+    ]).then(([problemItems, c]) => {
+      if (!live) return;
+      setItems(problemItems);
+      setContest(c);
+    });
     return () => { live = false; };
   }, [contestId]);
 
-  const next = useMemo(() => pickNext(items), [items]);
+  const next = useMemo(() => {
+    const problemEvent = pickNext(items);
+    if (problemEvent) {
+      return {
+        ...problemEvent,
+        when: problemEvent.t,
+        href: `/contests/${contestId}/problems/${problemEvent.p.id}`,
+        label: `${problemEvent.p.code} ${problemEvent.p.name}`,
+      };
+    }
+    if (!contest) return null;
+    const now = Date.now();
+    const start = contest.startAt ? new Date(contest.startAt).getTime() : null;
+    const end = contest.endAt || contest.stopAt ? new Date(contest.endAt || contest.stopAt).getTime() : null;
+    const freeze = contest.freezeAt ? new Date(contest.freezeAt).getTime() : null;
+    if (Number.isFinite(freeze) && freeze > now && (!Number.isFinite(end) || freeze <= end)) {
+      return { when: freeze, href: `/contests/${contestId}/ranking`, label: t.timer_freeze, overdue: false };
+    }
+    if (Number.isFinite(end) && end > now) {
+      return { when: end, href: `/contests/${contestId}`, label: t.timer_contest_end, overdue: false };
+    }
+    if (Number.isFinite(start) && start > now) {
+      return { when: start, href: `/contests/${contestId}`, label: t.timer_contest_start, overdue: false };
+    }
+    return null;
+  }, [items, contest, contestId, t]);
 
   if (!contestId) return null;
   if (!next) return null;
 
-  const ms = next.t - Date.now();
+  const ms = next.when - Date.now();
   const urgent = !next.overdue && ms < 86400000;
   const tone = next.overdue
     ? { bg: 'var(--wa-soft)', line: 'var(--wa-line)', text: 'var(--wa-text)' }
@@ -55,14 +87,14 @@ export default function ContestTimer() {
     <div
       className="top-timer hidden lg:flex"
       role="status"
-      title={new Date(next.p.effectiveDeadline).toString()}
+      title={new Date(next.when).toString()}
       style={{ background: tone.bg, borderColor: tone.line, color: tone.text }}
     >
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
-      <Link href={`/contests/${contestId}/problems/${next.p.id}`} prefetch className="top-timer-link focus-ring">
-        {next.p.code} {next.p.name}
+      <Link href={next.href} prefetch className="top-timer-link focus-ring">
+        {next.label}
       </Link>
-      {next.overdue ? <span>{t.timer_overdue}</span> : <Countdown to={next.p.effectiveDeadline} label={t.timer_left} />}
+      {next.overdue ? <span>{t.timer_overdue}</span> : <Countdown to={new Date(next.when).toISOString()} label={t.timer_left} />}
       <a href={`${API}/api/contests/${contestId}/grade.ics`} className="top-timer-ics focus-ring" aria-label={t.timer_ics_aria}>ICS</a>
     </div>
   );
