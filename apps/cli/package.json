@@ -1,0 +1,6 @@
+{
+  "name": "@satori-v2/cli",
+  "version": "2.0.0",
+  "bin": { "satori": "./bin/satori.js" },
+  "dependencies": {}
+}

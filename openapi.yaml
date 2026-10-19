@@ -1,0 +1,39 @@
+openapi: 3.1.0
+info: { title: Satori V2 API, version: 2.0.0, description: API-first judge + contests }
+servers: [{ url: http://localhost:3001 }]
+paths:
+  /api/health: { get: { summary: Health + queue depth } }
+  /api/status: { get: { summary: Judge queue + ETA + worker images } }
+  /api/languages: { get: { summary: Language matrix (replaces login-walled subpage 184196) } }
+  /api/auth/register: { post: { summary: Register (login 3-24, email, password, accessCode) } }
+  /api/auth/token: { post: { summary: Login -> JWT + refresh + per-device session } }
+  /api/auth/refresh: { post: { summary: Refresh JWT } }
+  /api/auth/revoke: { post: { summary: Revoke session(s) } }
+  /api/me: { get: { summary: Profile }, patch: { summary: Update affiliation etc } }
+  /api/contests:
+    get: { summary: List ?role=joined|pending|managed|other&q&archived }
+    post: { summary: Create (template ICPC|IOI|LABS|EXAM|PLAYGROUND|VIRTUAL) }
+  /api/contests/{id}: { get: { summary: Get }, patch: { summary: Lifecycle draft->registration->running->finished->archived } }
+  /api/contests/{id}/apply: { post: { summary: Apply (open=auto, approval=pending) } }
+  /api/contests/{id}/members/approve: { post: { summary: Approve (+approveAllByFilter, CSV) } }
+  /api/contests/{id}/problems: { get: { summary: Cockpit + inline verdict chips ?q&status&tag }, post: { summary: Create problem } }
+  /api/problems/{id}: { get: { summary: Statement + limits + samples }, patch: { summary: Edit (limits versioned to limitHistory) } }
+  /api/problems/{id}/tests: { get: { summary: Groups+cases }, post: { summary: Add group/case } }
+  /api/problems/{id}/best: { get: { summary: Best verdict chip + tries } }
+  /api/problems/{id}/heatmap: { get: { summary: Fail heatmap per test } }
+  /api/problems/{id}/clone: { post: { summary: Clone across contests } }
+  /api/problems/{id}/rejudge: { post: { summary: Rejudge all submits } }
+  /api/submits:
+    post: { summary: Submit paste|file|gist (multipart|json), filename-checked, lang auto-detect }
+    get: { summary: Results ?contest&problem&verdict&me&limit (default 50, max 200) }
+  /api/submits/sample-run: { post: { summary: Run on samples, no penalty } }
+  /api/submits/{id}: { get: { summary: Detail + per-test (visibility-aware) + explainers } }
+  /api/submits/{id}/events: { get: { summary: SSE live queued->compiling->testing->judged } }
+  /api/submits/{id}/rejudge: { post: { summary: Rejudge one } }
+  /api/contests/{id}/ranking: { get: { summary: ICPC|IOI (?mode), freeze-aware } }
+  /api/contests/{id}/rankings/live: { get: { summary: SSE live board } }
+  /api/contests/{id}/grade: { get: { summary: Course grade + what-if projection } }
+  /api/webhooks: { get: { summary: List }, post: { summary: Register (submit.judged, rejudge.done, limit.changed) } }
+  /api/search: { get: { summary: Global contest/problem/user/announcement search } }
+components:
+  securitySchemes: { bearer: { type: http, scheme: bearer, bearerFormat: JWT } }

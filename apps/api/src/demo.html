@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Satori V2 demo (no install)</title>
+<style>:root{--bg:#f5f7fa;--fg:#101a2c;--muted:#5b6b82;--border:#e1e7f0;--accent:#1d4ed8;--accent-fg:#fff;--signal:#3b82f6;--signal:#2b4bf2;--card:#fff;--radius:14px;--shadow:0 1px 2px rgb(16 26 44/.06),0 8px 24px -12px rgb(16 26 44/.18);--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}*{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:var(--bg);color:var(--fg);font-size:14px;line-height:1.55}.rail{background:#101a2c;color:#fff}.rail>div{max-width:800px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:10px}.mark{width:28px;height:28px;border-radius:8px;background:var(--accent);color:var(--accent-fg);display:inline-flex;align-items:center;justify-content:center;font-weight:700}.strip{display:flex;height:3px}.strip i:first-child{flex:1;background:var(--accent)}.strip i:nth-child(2){width:96px;background:var(--signal)}.strip i:nth-child(3){width:40px;background:#b45309}.wrap{max-width:800px;margin:0 auto;padding:20px 16px 40px}.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}h1{font-size:30px;letter-spacing:-.02em;margin:.2em 0}h2{font-size:17px;letter-spacing:-.01em;margin:1.6em 0 .5em}.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin:.6em 0}.pill{display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:6px;border:1px solid transparent;white-space:nowrap}table{border-collapse:collapse;width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}td,th{padding:8px 12px;font-size:14px;border-bottom:1px solid var(--border);text-align:left}th{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}td.code{font-family:var(--mono);font-weight:700}.ok{background:#d1fae5;border-color:#a7f3d0;color:#047857}.bad{background:#fee2e2;border-color:#fecaca;color:#b91c1c}.mut{background:#f3f4f6;color:#6b7280;border-color:#e5e7eb}input,textarea,button{font-size:14px}input,textarea{border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff}input:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}textarea{width:100%;font-family:var(--mono);font-size:12px}button{background:var(--accent);color:var(--accent-fg);border:0;border-radius:10px;padding:8px 14px;font-weight:600;cursor:pointer}code{font-family:var(--mono);font-size:12px;background:#eef1f5;padding:1px 5px;border-radius:5px}:focus-visible{outline:2px solid var(--signal)}</style>
+</head><body>
+<div class="rail"><div><span class="mark">S</span><b>Satori V2</b><span style="opacity:.55;font-family:var(--mono);font-size:11px">zero-install demo</span></div></div>
+<div class="strip" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="wrap">
+<p class="eyebrow">Online judge · ICPC · Labs</p>
+<h1>Submit code. Watch the verdict land.</h1>
+<p style="color:var(--muted)">Zero-install UI. API on same origin. Login: <code>jan_kowalski / student123</code></p>
+<div class="card"><input id="login" value="jan_kowalski"> <input id="pass" type="password" value="student123" placeholder="password"> <button onclick="login()">Login</button> <span id="who"></span></div>
+<h2>Contests</h2><div id="contests"></div>
+<h2>Problems (251519) + inline verdicts</h2><div id="probs"></div>
+<h2>Submit</h2>
+<div class="card"><input id="pid" placeholder="problemId"> <input id="fn" value="solution.cpp">
+<textarea id="code" rows="6">int main(){int a,b;cin>>a>>b;cout<<a+b;}</textarea>
+<button onclick="submit()">Submit</button> <span id="sub" class="pill mut"></span></div>
+<h2>Ranking</h2><div id="rank" class="card"></div>
+</div>
+<script>
+let T=null; const H=()=>({'Content-Type':'application/json',...(T?{Authorization:'Bearer '+T}:{})});
+async function login(){const r=await fetch('/api/auth/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:loginEl().value,password:passEl().value})});const d=await r.json();T=d.token;who.textContent=T?'logged in':'FAIL '+JSON.stringify(d);load();}
+const loginEl=()=>document.getElementById('login'),passEl=()=>document.getElementById('pass');
+async function load(){
+ const c=await (await fetch('/api/contests',{headers:H()})).json();
+ contests.innerHTML=(c.items||[]).map(x=>`<div>${x.id} <b>${x.name}</b> ${x.mode}</div>`).join('');
+ const p=await (await fetch('/api/contests/251519/problems',{headers:H()})).json();
+  probs.innerHTML=`<table><tr><th>code</th><th>name</th><th>best</th><th>tries</th></tr>`+(p.items||[]).map(x=>{const v=x._best||'-';const cls=v==='OK'?'pill ok':(v==='-'?'pill mut':'pill bad');return `<tr><td class="code">${x.code}</td><td>${x.name} (${x.id})</td><td><span class="${cls}">${v}</span></td><td>${x._tries||0}</td></tr>`}).join('')+`</table>`;
+
+ const rk=await (await fetch('/api/contests/251519/ranking',{headers:H()})).json();
+ rank.innerHTML=(rk.rows||[]).slice(0,10).map(r=>`<div>#${r.rank} ${r.name} ${r.solved??r.total}</div>`).join('');
+}
+async function submit(){
+ const r=await fetch('/api/submits',{method:'POST',headers:H(),body:JSON.stringify({contestId:251519,problemId:Number(pid.value),filename:fn.value,code:code.value})});
+ const d=await r.json(); sub.textContent=r.ok?`#${d.id} ${d.status}`:`FAIL ${JSON.stringify(d)}`;
+ if(r.ok){const es=new EventSource(`/api/submits/${d.id}/events`);es.onmessage=e=>{const m=JSON.parse(e.data);sub.textContent=`#${d.id} ${m.status||m.phase}`;if(m.status&&!['QUE','CMP','TST'].includes(m.status)){es.close();load();}};}
+}
+load();
+</script></body></html>

@@ -1,0 +1,131 @@
+/* Satori V2 design tokens — precision product. Source of truth: docs/DESIGN_PLAN.md.
+   Neutral scale + one confident cobalt-blue accent. Status palette = separate namespace, never brand. */
+
+:root {
+  /* neutral */
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-glass: rgb(255 255 255 / 0.85);
+  --border: #e4e7ec;
+  --input-bg: #f7f8fa;
+  --hover-wash: rgb(128 140 155 / 0.1);
+  --fg: #0f1728;
+  --muted: #5b6475;
+
+  /* accent — links, focus, selection, live states, primary buttons */
+  --accent: #0f52ba;
+  --accent-fg: #ffffff;
+  --accent-text: #0b3f90;
+  --accent-hover: #0c4299;
+  --accent-soft: rgb(15 82 186 / 0.12);
+  --accent-line: rgb(15 82 186 / 0.35);
+
+  /* status — own namespace. strong = fills, text = AA on *-soft */
+  --ok: #16a34a;
+  --ok-text: #15803d;
+  --ok-soft: rgb(22 163 74 / 0.12);
+  --ok-line: rgb(22 163 74 / 0.35);
+  --wa: #dc2626;
+  --wa-text: #b91c1c;
+  --wa-soft: rgb(220 38 38 / 0.12);
+  --wa-line: rgb(220 38 38 / 0.35);
+  --tle: #d97706;
+  --tle-text: #92400e;
+  --tle-soft: rgb(217 119 6 / 0.12);
+  --tle-line: rgb(217 119 6 / 0.35);
+  --mle: #9333ea;
+  --mle-text: #7e22ce;
+  --mle-soft: rgb(147 51 234 / 0.12);
+  --mle-line: rgb(147 51 234 / 0.35);
+  --re: #db2777;
+  --re-text: #be185d;
+  --re-soft: rgb(219 39 119 / 0.12);
+  --re-line: rgb(219 39 119 / 0.35);
+  --ce: #64748b;
+  --ce-text: #475569;
+  --ce-soft: rgb(100 116 139 / 0.12);
+  --ce-line: rgb(100 116 139 / 0.35);
+
+  /* geometry */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgb(15 23 40 / 0.05);
+
+  /* type */
+  --font-sans: var(--font-inter, "Inter"), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ripple — background typography water */
+  --ripple-rest: #c3cad4;
+  --ripple-soft: #93c5fd;
+  --ripple-mid: #60a5fa;
+  --ripple-hot: #2563eb;
+  --ripple-bg: transparent;
+
+  /* compat aliases — used across pages, removed in D2 sweep */
+  --card: var(--surface);
+  --signal: var(--accent);
+  --signal-fg: var(--accent-fg);
+  --paper: var(--bg);
+  --ink: #0f1728;
+  --danger: var(--wa);
+  --danger-fg: #ffffff;
+  --warn: var(--tle);
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+}
+
+.dark {
+  --bg: #0b0d12;
+  --surface: #11141a;
+  --surface-glass: rgb(17 20 26 / 0.85);
+  --border: #1b212c;
+  --input-bg: #11141a;
+  --hover-wash: rgb(148 163 184 / 0.12);
+  --fg: #e9edf4;
+  --muted: #8a93a6;
+
+  --accent: #5b8def;
+  --accent-fg: #06121f;
+  --accent-text: #a8c4ff;
+  --accent-hover: #7ba3f2;
+  --accent-soft: rgb(91 141 239 / 0.16);
+  --accent-line: rgb(91 141 239 / 0.45);
+
+  --ok: #4ade80;
+  --ok-text: #4ade80;
+  --ok-soft: rgb(74 222 128 / 0.16);
+  --ok-line: rgb(74 222 128 / 0.4);
+  --wa: #f87171;
+  --wa-text: #f87171;
+  --wa-soft: rgb(248 113 113 / 0.16);
+  --wa-line: rgb(248 113 113 / 0.4);
+  --tle: #fbbf24;
+  --tle-text: #fbbf24;
+  --tle-soft: rgb(251 191 36 / 0.16);
+  --tle-line: rgb(251 191 36 / 0.4);
+  --mle: #c084fc;
+  --mle-text: #c084fc;
+  --mle-soft: rgb(192 132 252 / 0.16);
+  --mle-line: rgb(192 132 252 / 0.4);
+  --re: #f472b6;
+  --re-text: #f472b6;
+  --re-soft: rgb(244 114 182 / 0.16);
+  --re-line: rgb(244 114 182 / 0.4);
+  --ce: #94a3b8;
+  --ce-text: #94a3b8;
+  --ce-soft: rgb(148 163 184 / 0.16);
+  --ce-line: rgb(148 163 184 / 0.4);
+
+  --shadow: none;
+
+  /* ripple — background typography water */
+  --ripple-rest: #334155;
+  --ripple-soft: #7aa5ff;
+  --ripple-mid: #4d86ff;
+  --ripple-hot: #2f6bff;
+  --ripple-bg: transparent;
+
+  --ink: #2a364a;
+  --danger-fg: #0b0d12;
+}

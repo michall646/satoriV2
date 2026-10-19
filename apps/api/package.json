@@ -1,0 +1,1 @@
+{"name":"@satori-v2/api","version":"2.0.0","main":"./src/server.js","scripts":{"start":"node src/server.js","seed":"node src/seed.js"}}

@@ -1,0 +1,7 @@
+node_modules/
+.next/
+apps/api/data/*.json
+!.gitkeep
+.openchamber/
+.playwright-mcp/
+.tmp/

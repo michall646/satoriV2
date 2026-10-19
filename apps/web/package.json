@@ -1,0 +1,28 @@
+{
+  "name": "@satori-v2/web",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@codemirror/lang-cpp": "^6.0.3",
+    "@codemirror/lang-java": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@uiw/codemirror-theme-github": "^4.25.12",
+    "@uiw/codemirror-theme-vscode": "^4.25.12",
+    "@uiw/react-codemirror": "^4.25.12",
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.4.19"
+  }
+}
