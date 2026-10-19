@@ -202,6 +202,17 @@ test('C5: authoring routes are admin-only and reference/validator secrets do not
   assert.equal(asStudent.body.referenceCode, undefined);
   assert.equal(asStudent.body.validatorCode, undefined);
   assert.equal(asStudent.body.validatorFile, undefined);
+
+  // The contest problem list must not become a side channel for the same secrets.
+  const contestId = p.contestId || own.body.contestId;
+  const list = await h.api(`/api/contests/${contestId}/problems`, {}, student);
+  assert.equal(list.status, 200);
+  const row = (list.body.items || []).find((x) => String(x.id) === String(p.id));
+  assert.ok(row, 'problem is listed');
+  assert.equal(row.referenceCode, undefined);
+  assert.equal(row.validatorCode, undefined);
+  assert.equal(row.validatorFile, undefined);
+  assert.equal(row.checkerCode, undefined);
 });
 
 test('C5: a group-level validator participates in the publish gate', async () => {
