@@ -433,10 +433,10 @@ A release gate is done only when:
 | Gate A | DONE (core) | Security A1–A18; contest B1–B8; judge C1–C3/C8; grade D1/D4/D5/D7/D8; student E1/E4/E5; comms/exam F1/F3–F7; platform G1–G3/G7. Web build green. |
 | Gate A polish | PARTIAL | A15 headers/report-only CSP DONE; B10 membership/drafts DONE; D11 audit actor/filter DONE; B9 timer, problem-page editorial/KaTeX, profile edit remain |
 | Gate B | DONE (core) | H authoring/checker (custom checker, validators, test manager, editor fields, clone/history), I student web, J announcements/notifications, K gradebook/bulk all committed. 179/179 tests, build green. |
-| Gate B next | TODO | C9 async judge worker + persistent queue, PWA G4, auth G5, org G6 |
-| Gate C | TODO | integrity analytics, load, Postgres, observability |
-| Gate D | TODO | SSO/2FA depth, org admin, CLI/SDK depth |
+| Gate C | IN PROGRESS | L async judge/persistent queue, M validators/reference, N PWA/offline, O team lifecycle running in parallel |
+| Gate C next | TODO | auth G5 (reset/2FA), org G6, load/Postgres/observability |
+| Gate D | TODO | SSO/2FA depth, org admin, CLI/SDK depth, MOSS adapter |
 
-Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError, `b503272` import flags, `14a8df3` UI polish, `e19ba5e` migration tests, `be57cab` API route split, `5aecfb6` ranking freeze, `0f2cc9a` judge truth, `e743dbf` demo truth, `dda9ce6` student editor/notes, `89642e0` contest engine, `6efb9cf` platform/docs/CLI, `30ed0bd` OpenAPI JSON, `d317ec3` grading, `9c66736` Gate A security/comms/integration, `8f72c25` announcements, `d8a402b` OpenAPI RSS, `fd817d0` contest membership/drafts, `cd96355` security headers, `3975db0` audit, `9589b42` authoring/checker, `009ab73` student2, `b0e4bf0` gradebook, `d234cf8` notification prefs/privacy.
+Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError, `b503272` import flags, `14a8df3` UI polish, `e19ba5e` migration tests, `be57cab` API route split, `5aecfb6` ranking freeze, `0f2cc9a` judge truth, `e743dbf` demo truth, `dda9ce6` student editor/notes, `89642e0` contest engine, `6efb9cf` platform/docs/CLI, `30ed0bd` OpenAPI JSON, `d317ec3` grading, `9c66736` Gate A security/comms/integration, `8f72c25` announcements, `d8a402b` OpenAPI RSS, `fd817d0` contest membership/drafts, `cd96355` security headers, `3975db0` audit, `9589b42` authoring/checker, `009ab73` student2, `b0e4bf0` gradebook, `d234cf8` notification prefs/privacy, `7414c80` Batch 2 green.
 
 Update this table as work lands. Do not mark a gate done without the Gate checklist and E2E.
