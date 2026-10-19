@@ -8,6 +8,7 @@ const { validateLogin, validateEmail } = require('../lib/validators');
 const { send, readBody, noteLoginFail, loginBlocked, clearLoginFails, registerRate, throttleResponse } = require('../lib/http');
 const { needAuth, tokenClaims, audit } = require('../lib/authz');
 const { mySessions, myTeams } = require('../lib/contestAccess');
+const { isConfigured, isValidEmail, sendMail, webBaseUrl, provider } = require('../lib/mailer');
 
 const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -16,6 +17,14 @@ const TFA_WINDOW_MS = Number(process.env.SATORI_2FA_WINDOW_MS || 60 * 1000);
 const TFA_FAILS = new Map();
 
 function nowIso() { return new Date().toISOString(); }
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 function publicUser(user) {
   const out = { ...user };
@@ -168,14 +177,47 @@ async function handle(req, res, url, p, m) {
     return send(res, 200, { ok: true });
   }
   // Password reset: the request is deliberately indistinguishable for known and
-  // unknown accounts. A real mail transport is a handoff; dev mode returns the
-  // token so the flow is testable without pretending an e-mail was sent.
+  // unknown accounts. With a real provider, the link is mailed and never echoed.
+  // Console/not-configured keeps the dev stderr token, gated by SATORI_DEV_RESET_TOKEN.
   if (p === '/api/auth/forgot' && m === 'POST') {
     const b = await readBody(req);
     const user = findUserByLoginOrEmail(b.login || b.email);
     if (!user) return send(res, 200, { ok: true });
     const raw = issueResetToken(user.id);
     audit(user.id, 'auth.password.reset.request', `user:${user.id}`, {});
+
+    const mailProvider = provider();
+    const configured = isConfigured();
+    if (configured && mailProvider !== 'console') {
+      if (!isValidEmail(user.email)) {
+        audit(user.id, 'auth.password.reset.email', `user:${user.id}`, { provider: mailProvider, delivered: false, reason: 'no_email' });
+        console.error(`[auth] password reset skipped: ${user.login} has no valid e-mail address`);
+        return send(res, 200, { ok: true });
+      }
+      const link = `${webBaseUrl()}/reset?token=${encodeURIComponent(raw)}`;
+      const result = await sendMail({
+        to: user.email,
+        subject: 'Reset your Satori password',
+        text: `Use this link within 30 minutes to set a new password:\n\n${link}\n\nIf you did not request it, ignore this message.`,
+        html: `<p>Use this link within 30 minutes to set a new password:</p><p><a href="${escapeHtml(link)}">Reset password</a></p><p>If you did not request it, ignore this message.</p>`,
+      });
+      // Audit the outcome, never the token.
+      audit(user.id, 'auth.password.reset.email', `user:${user.id}`, {
+        provider: result.provider,
+        delivered: Boolean(result.ok && result.delivered),
+        reason: result.ok ? null : result.error,
+      });
+      if (!result.ok || !result.delivered) {
+        console.error(`[auth] password reset e-mail failed for ${user.login}: ${result.error || 'not delivered'}`);
+      }
+      return send(res, 200, { ok: true });
+    }
+
+    audit(user.id, 'auth.password.reset.email', `user:${user.id}`, {
+      provider: mailProvider,
+      delivered: false,
+      reason: mailProvider === 'console' ? 'console' : 'not_configured',
+    });
     if (process.env.SATORI_DEV_RESET_TOKEN === '1') return send(res, 200, { ok: true, devToken: raw, expiresIn: Math.floor(RESET_TTL_MS / 1000) });
     console.error(`[auth] password reset token for ${user.login}: ${raw} (valid 30 min)`);
     return send(res, 200, { ok: true });

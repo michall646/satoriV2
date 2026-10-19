@@ -6,8 +6,10 @@ const { store } = require('../lib/store');
 const { notifyUser } = require('../lib/notifications');
 const { send, sendText, readBody, rateLimited } = require('../lib/http');
 const { authUser, needAuth, forbid, audit, contestRole, canManageContest } = require('../lib/authz');
+const { isConfigured, isValidEmail, sendMail, webBaseUrl } = require('../lib/mailer');
 
 const NEWS_FIELDS = ['title', 'bodyMd', 'bodyHtml', 'scheduledAt', 'attachments', 'email', 'inApp', 'pinned', 'publishedAt', 'tags'];
+const MAX_EMAIL_RECIPIENTS = 200;
 const SUBPAGE_FIELDS = ['title', 'bodyMd', 'bodyHtml', 'attachments', 'order', 'slug', 'published', 'tags'];
 function pickFields(obj, fields) {
   const out = {};
@@ -57,13 +59,50 @@ function announcementRecipients(contest, authorId) {
 }
 function fanoutAnnouncement(contest, news, authorId) {
   if (!news || news.inApp === false) return 0;
-  const at = new Date().toISOString();
   let notified = 0;
   for (const rawId of announcementRecipients(contest, authorId)) {
     const uid = Number(rawId);
     if (notifyUser(Number.isFinite(uid) ? uid : rawId, 'announcement', { contestId: contest.id, newsId: news.id, title: String(news.title || '') })) notified += 1;
   }
   return notified;
+}
+
+// Real e-mail fan-out for POST /news {email:true}. Eligibility is explicit:
+// a valid stored address and notificationPrefs.email !== false. The author is
+// skipped, recipients are capped, and failures are counted rather than thrown.
+// Scheduled posts are not mailed early; that belongs to a future scheduler.
+async function emailAnnouncement(contest, news) {
+  if (!isConfigured()) return { emailed: 0, emailErrors: 0, emailSkipped: true };
+  if (scheduledInFuture(news)) return { emailed: 0, emailErrors: 0, emailSkipped: true };
+
+  const recipients = [];
+  for (const rawId of announcementRecipients(contest, news.authorId)) {
+    if (recipients.length >= MAX_EMAIL_RECIPIENTS) break;
+    const user = store.get('users', rawId);
+    if (!user || !isValidEmail(user.email)) continue;
+    const prefs = user.notificationPrefs || {};
+    if (prefs.email === false) continue;
+    recipients.push(user);
+  }
+  if (recipients.length === 0) return { emailed: 0, emailErrors: 0, emailSkipped: true };
+
+  const title = String(news.title || '').trim();
+  const body = String(news.bodyMd || '').trim();
+  const link = `${webBaseUrl()}/contests/${contest.id}/announcements#announcement-${news.id}`;
+  const subject = `${contest.name ? `${contest.name}: ` : ''}${title}`.replace(/[\r\n]+/g, ' ').slice(0, 200);
+  const text = `${title}\n\n${body ? `${body}\n\n` : ''}Read the announcement: ${link}`;
+  const html = `<h2>${xmlEscape(title)}</h2>${body ? `<pre style="white-space:pre-wrap">${xmlEscape(body)}</pre>` : ''}<p><a href="${xmlEscape(link)}">Read the announcement</a></p>`;
+
+  const results = await Promise.allSettled(
+    recipients.map((user) => sendMail({ to: user.email, subject, text, html }))
+  );
+  let emailed = 0;
+  let emailErrors = 0;
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value && result.value.ok && result.value.delivered) emailed += 1;
+    else emailErrors += 1;
+  }
+  return { emailed, emailErrors, emailSkipped: false };
 }
 
 // ---- F2 RSS 2.0 ----
@@ -217,10 +256,14 @@ async function handle(req, res, url, p, m) {
       const row = pickFields(b, NEWS_FIELDS);
       if (!String(row.title || '').trim()) return badTitle(res);
       const out = store.insert('news', { ...row, contestId: c.id, authorId: me.id, createdAt: new Date().toISOString() });
-      // F2: in-app fan-out is real; the email flag is still a no-op (no mailer yet).
       const notified = fanoutAnnouncement(c, out, me.id);
-      audit(me.id, 'contest.news.create', `contest:${c.id}`, { newsId: out.id, notified });
-      return send(res, 201, { ...out, notified });
+      // email is an API-only flag; the web UI hides it. Mail is attempted only
+      // when asked, and never blocks the response on a sequential per-user loop.
+      const emailResult = b.email === true ? await emailAnnouncement(c, out) : null;
+      audit(me.id, 'contest.news.create', `contest:${c.id}`, {
+        newsId: out.id, notified, ...(emailResult || {}),
+      });
+      return send(res, 201, { ...out, notified, ...(emailResult || {}) });
     }
     const row = pickFields(b, SUBPAGE_FIELDS);
     if (!String(row.title || '').trim()) return badTitle(res);
