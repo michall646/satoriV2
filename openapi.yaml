@@ -71,7 +71,7 @@ paths:
   /api/auth/token:
     post:
       tags: [auth]
-      summary: Login -> JWT (12 h) + refresh token (14 d) + per-device session
+      summary: Login -> JWT (12 h) + refresh token (14 d) + per-device session; returns a 2FA challenge when enabled
       security: []
   /api/auth/refresh:
     post:
@@ -82,6 +82,33 @@ paths:
     post:
       tags: [auth]
       summary: Revoke the current session, or one session by jti
+  /api/auth/forgot:
+    post:
+      tags: [auth]
+      summary: Request a password reset; always generic (token only in SATORI_DEV_RESET_TOKEN=1)
+      security: []
+  /api/auth/reset:
+    post:
+      tags: [auth]
+      summary: Complete a password reset with a single-use token and revoke sessions
+      security: []
+  /api/auth/2fa/setup:
+    post:
+      tags: [auth]
+      summary: Generate a TOTP secret and otpauth URL (does not enable)
+  /api/auth/2fa/enable:
+    post:
+      tags: [auth]
+      summary: Enable TOTP after verifying a current code
+  /api/auth/2fa/verify:
+    post:
+      tags: [auth]
+      summary: Exchange a login 2FA challenge + code for tokens
+      security: []
+  /api/auth/2fa/disable:
+    post:
+      tags: [auth]
+      summary: Disable TOTP with password + current code
   /api/me:
     get:
       tags: [auth]
