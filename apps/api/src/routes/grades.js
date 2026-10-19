@@ -13,6 +13,8 @@ const { resolveContestEnd } = require('../lib/contestTime');
 const { processQueue } = require('../lib/judgeWorker');
 const { fireWebhooks } = require('./webhooks');
 const { zipStore } = require('../lib/zip');
+const { notifyUser } = require('../lib/notifications');
+const { isConfigured: mailConfigured, sendMail, webBaseUrl } = require('../lib/mailer');
 
 const NO_CONTEST = { error: { code: 'NO_CONTEST', message: 'Contest not found.', hint: 'Check /api/contests.' } };
 const BOM = '\uFEFF';
@@ -735,9 +737,32 @@ async function handle(req, res, url, p, m) {
         : matched.filter((s) => String(s.status).toUpperCase() === fl);
     }
     const userIds = [...new Set(matched.map((s) => String(s.userId)))];
-    for (const uid of userIds) store.insert('notifications', { userId: uid, type: 'grade.feedback', payload: { contestId: c.id, filter, text }, read: false, at: new Date().toISOString() });
-    audit(me.id, 'contest.grade.feedback', `contest:${c.id}`, { filter, submits: matched.length, users: userIds.length });
-    return send(res, 200, { ok: true, count: matched.length, users: userIds.length });
+    for (const uid of userIds) notifyUser(uid, 'grade.feedback', { contestId: c.id, filter, text });
+    // Optional email mirror. UI keeps this implicit: a configured transport delivers,
+    // an unconfigured one reports the skip instead of pretending.
+    const emailTargets = userIds.map((uid) => store.get('users', uid)).filter((u2) => u2
+      && u2.email
+      && (!u2.notificationPrefs || u2.notificationPrefs.email !== false)).slice(0, 200);
+    let emailed = 0;
+    let emailErrors = 0;
+    if (mailConfigured() && emailTargets.length) {
+      const subject = `[Satori] Feedback — ${c.name}`;
+      const link = `${webBaseUrl()}/contests/${c.id}/grade`;
+      const results = await Promise.allSettled(emailTargets.map((u2) => sendMail({
+        to: u2.email,
+        subject,
+        text: `${text}\n\nOpen your grade: ${link}`,
+      })));
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value && r.value.ok) emailed += 1;
+        else emailErrors += 1;
+      }
+    }
+    audit(me.id, 'contest.grade.feedback', `contest:${c.id}`, { filter, submits: matched.length, users: userIds.length, emailed, emailErrors });
+    return send(res, 200, {
+      ok: true, count: matched.length, users: userIds.length,
+      emailed, emailErrors, emailSkipped: !mailConfigured(),
+    });
   }
 
   mt = p.match(/^\/api\/contests\/(\d+)\/grade\/export\.csv$/);
