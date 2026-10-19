@@ -428,13 +428,14 @@ A release gate is done only when:
 | S0-03 test harness | DONE | `tests/helpers.js`, `tests/harness.test.js`; dynamic port |
 | S0-04 ApiError contract | DONE | `ApiError` keeps status/code/message/hint/field; `tests/web-api.test.js` |
 | S0-05 migration script | DONE | `scripts/migrate-v2.js`; dry-run + `--apply` + backup; tested on temp copy |
-| S0-06 flags / fake toasts | PARTIAL | `lib/flags.js`; bulk PDF + ZIP/PDF imports + request-access fakes removed/gated |
-| S0-07 gate tests | TODO | lane tests land with each workstream |
-| Gate A | IN PROGRESS | C1–C3/C8 done; B1–B6 engine done; E1/E4/E5 done; G1/G2/G7 + OpenAPI JSON done; A security, D grading, F comms/exam running |
-| Gate B | TODO | |
-| Gate C | TODO | |
-| Gate D | TODO | |
+| S0-06 flags / fake toasts | DONE | `lib/flags.js`; bulk PDF + ZIP/PDF imports + request-access fakes removed/gated |
+| S0-07 gate tests | DONE | lane tests + harness + migration + web-api + platform; full suite 147/147 |
+| Gate A | DONE (core) | Security A1–A18; contest B1–B8; judge C1–C3/C8; grade D1/D4/D5/D7/D8; student E1/E4/E5; comms/exam F1/F3–F7; platform G1–G3/G7. Web build green. |
+| Gate A polish | TODO | A15 web CSP headers; B9/B10 timer/list polish; C10–C12 editor fields/clone/limitHistory; D11 audit actor/diff; E2/E3/E6/E9 problem/results/home/profile; F2 announcements |
+| Gate B | TODO | custom checker, validators, test manager, async judge, gradebook, auth |
+| Gate C | TODO | integrity analytics, load, Postgres, observability |
+| Gate D | TODO | PWA, SSO/2FA, org admin, CLI/SDK depth |
 
-Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError test, `b503272` import flags, `14a8df3` UI polish, `e19ba5e` migration tests, `be57cab` API route split, `5aecfb6` ranking freeze, `0f2cc9a` judge truth, `e743dbf` demo truth, `dda9ce6` student editor/notes.
+Commits so far: `b23e26f` baseline, `6ed2dde` harness/migration/flags, `3c49c6e` web client split, `9ca9ee1` web ApiError, `b503272` import flags, `14a8df3` UI polish, `e19ba5e` migration tests, `be57cab` API route split, `5aecfb6` ranking freeze, `0f2cc9a` judge truth, `e743dbf` demo truth, `dda9ce6` student editor/notes, `89642e0` contest engine, `6efb9cf` platform/docs/CLI, `30ed0bd` OpenAPI JSON, `d317ec3` grading, `9c66736` Gate A security/comms/integration.
 
 Update this table as work lands. Do not mark a gate done without the Gate checklist and E2E.
