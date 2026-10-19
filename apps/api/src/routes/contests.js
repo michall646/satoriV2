@@ -23,7 +23,13 @@ function publicContestView(c) {
   return { ...rest, settings: safeSettings, memberCount: (members || []).length };
 }
 function contestView(c, me) {
-  return canManageContest(me, c) ? c : publicContestView(c);
+  const base = canManageContest(me, c) ? c : publicContestView(c);
+  if (!me) return { ...base, membership: 'other' };
+  const role = contestRole(c, me.id);
+  const membership = role === 'contest_admin' || role === 'superadmin'
+    ? 'managed'
+    : role === 'participant' ? 'joined' : role === 'pending' ? 'pending' : 'other';
+  return { ...base, membership };
 }
 // A10/A12: hide rows the board mode forbids and never rank teachers.
 function filterBoard(c, me, body) {
@@ -51,8 +57,11 @@ async function handle(req, res, url, p, m) {
     const q = (u.searchParams.get('q') || '').toLowerCase();
     let items = store.all('contests');
     if (!showArchived) items = items.filter((c) => !c.archived);
-    if (q) items = items.filter((c) => (c.name + ' ' + (c.description || '')).toLowerCase().includes(q));
     const has = (arr, id) => (arr || []).map(String).includes(String(id));
+    // B10: drafts are only visible to their admins/members/pending users.
+    items = items.filter((c) => c.lifecycle !== 'draft'
+      || (me && (canManageContest(me, c) || has(c.members, me.id) || has(c.pending, me.id))));
+    if (q) items = items.filter((c) => (c.name + ' ' + (c.description || '')).toLowerCase().includes(q));
     if (me && role === 'joined') items = items.filter((c) => has(c.members, me.id));
     if (me && role === 'pending') items = items.filter((c) => has(c.pending, me.id));
     if (me && role === 'managed') items = items.filter((c) => has(c.admins, me.id));

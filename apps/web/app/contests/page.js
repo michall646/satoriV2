@@ -138,6 +138,7 @@ export default function ContestsPage() {
                       <div className="shrink-0">
                         {state === 'joined' || state === 'member' ? <Badge tone="accent">{t.contests_joined_state}</Badge>
                           : state === 'pending' ? <Badge tone="warn">{t.contests_pending_state}</Badge>
+                          : state === 'managed' ? <Badge tone="accent">{t.manage_title}</Badge>
                           : <Button variant="secondary" onClick={() => apply(c)} disabled={applying === c.id} className="!py-1.5">{applying === c.id ? t.contests_applying : t.contests_apply}</Button>}
                       </div>
                     </div>
