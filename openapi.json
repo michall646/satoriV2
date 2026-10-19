@@ -50,6 +50,9 @@
       "name": "teams"
     },
     {
+      "name": "orgs"
+    },
+    {
       "name": "account"
     }
   ],
@@ -112,10 +115,118 @@
     "/api/orgs": {
       "get": {
         "tags": [
-          "meta"
+          "orgs"
         ],
-        "summary": "List organizations",
+        "summary": "List organizations with memberCount (public projection)",
         "security": []
+      },
+      "post": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Create an organization (superadmin)"
+      }
+    },
+    "/api/orgs/{id}": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Organization summary; admins are visible only to managers",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Edit an organization (superadmin or its org admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Delete an organization (superadmin; 409 unless force with no members)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ]
+      }
+    },
+    "/api/orgs/{id}/members": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "List organization members (superadmin or org admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Assign a user to the organization by login (superadmin or org admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ]
+      }
+    },
+    "/api/orgs/{id}/members/{uid}": {
+      "delete": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Remove a user from the organization (superadmin or org admins)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          },
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/orgs/{id}/admins": {
+      "post": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Add or remove an organization admin by login",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ]
+      }
+    },
+    "/api/me/orgs": {
+      "get": {
+        "tags": [
+          "orgs"
+        ],
+        "summary": "Organizations the caller can administer, plus the superadmin flag"
       }
     },
     "/api/search": {
@@ -177,7 +288,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "Request a password reset; always generic (token only in SATORI_DEV_RESET_TOKEN=1)",
+        "summary": "Request a password reset; mails a link when configured, always generic (token only in dev mode)",
         "security": []
       }
     },
@@ -789,7 +900,7 @@
         "tags": [
           "grades"
         ],
-        "summary": "Send grade/verdict feedback notifications to matched students (admins)",
+        "summary": "Send grade/verdict feedback notifications to matched students; mirrors by email when configured (admins)",
         "parameters": [
           {
             "$ref": "#/components/parameters/ContestId"
@@ -1028,7 +1139,7 @@
         "tags": [
           "comms"
         ],
-        "summary": "Create announcement (admins)",
+        "summary": "Create announcement (admins); email:true mirrors to eligible members when a transport is configured",
         "parameters": [
           {
             "$ref": "#/components/parameters/ContestId"
@@ -2040,6 +2151,14 @@
     },
     "parameters": {
       "ContestId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "OrgId": {
         "name": "id",
         "in": "path",
         "required": true,
