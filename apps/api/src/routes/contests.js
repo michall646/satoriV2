@@ -446,7 +446,17 @@ async function handle(req, res, url, p, m) {
     if (act === 'audit' && m === 'GET') {
       const me = needAuth(req, res);
       if (!me) return true;
-      return send(res, 200, { items: store.query('audit', (a) => String(a.target).includes(String(c.id))).slice(-200) });
+      if (!canManageContest(me, c)) return forbid(res);
+      const actorQ = String(u.searchParams.get('actor') || '').toLowerCase();
+      const actionQ = String(u.searchParams.get('action') || '').toLowerCase();
+      const targetQ = String(u.searchParams.get('target') || '').toLowerCase();
+      const users = new Map(store.all('users').map((x) => [String(x.id), x.login]));
+      let items = store.query('audit', (a) => String(a.target).includes(String(c.id)));
+      if (actorQ) items = items.filter((a) => String(a.actorLogin || users.get(String(a.actorId)) || '').toLowerCase().includes(actorQ) || String(a.actorId) === actorQ);
+      if (actionQ) items = items.filter((a) => String(a.action || '').toLowerCase().includes(actionQ));
+      if (targetQ) items = items.filter((a) => String(a.target || '').toLowerCase().includes(targetQ));
+      items = items.map((a) => ({ ...a, actorLogin: a.actorLogin || users.get(String(a.actorId)) || null }));
+      return send(res, 200, { items: items.slice(-200) });
     }
   }
 

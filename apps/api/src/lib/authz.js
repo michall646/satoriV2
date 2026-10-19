@@ -19,7 +19,15 @@ function tokenClaims(req) {
   return verifyJwt(req.headers.authorization || '');
 }
 function audit(actorId, action, target, meta) {
-  store.insert('audit', { actorId, action, target, at: new Date().toISOString(), meta: meta || {} });
+  const actor = actorId != null ? store.get('users', actorId) : null;
+  store.insert('audit', {
+    actorId,
+    actorLogin: actor ? actor.login : null,
+    action,
+    target,
+    at: new Date().toISOString(),
+    meta: meta || {},
+  });
 }
 
 function hasId(arr, id) { return (arr || []).map(String).includes(String(id)); }

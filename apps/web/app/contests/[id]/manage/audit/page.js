@@ -35,7 +35,7 @@ export default function ManageAuditPage({ params }) {
           stickyHeader
           columns={[
             { key: 'at', label: t.integrity_when, render: (a) => <span className="type-mono">{a.at ? new Date(a.at).toLocaleString() : '—'}</span> },
-            { key: 'actor', label: t.integrity_who, render: (a) => <span className="type-mono">{a.actorId ?? a.actor ?? '—'}</span> },
+            { key: 'actor', label: t.integrity_who, render: (a) => <span className="type-mono">{a.actorLogin || a.actorId || a.actor || '—'}</span> },
             { key: 'action', label: t.integrity_action },
             { key: 'target', label: t.audit_target, render: (a) => <span className="type-mono">{a.target || '—'}</span> },
             { key: 'diff', label: t.audit_change, render: (a) => <span className="type-mono" style={{ color: 'var(--muted)' }}>{a.meta || a.diff ? JSON.stringify(a.meta || a.diff).slice(0, 120) : '—'}</span> },

@@ -154,7 +154,7 @@ export default function ManageIntegrityPage({ params }) {
             stickyHeader
             columns={[
               { key: 'at', label: t.integrity_when, render: (a) => <span className="type-mono">{a.at ? new Date(a.at).toLocaleString() : '—'}</span> },
-              { key: 'actor', label: t.integrity_who, render: (a) => <span className="type-mono">{a.actorId ?? '—'}</span> },
+              { key: 'actor', label: t.integrity_who, render: (a) => <span className="type-mono">{a.actorLogin || a.actorId || '—'}</span> },
               { key: 'action', label: t.integrity_action },
               { key: 'target', label: t.integrity_target, render: (a) => <span className="type-mono" style={{ color: 'var(--muted)' }}>{a.target} {a.meta || a.diff ? JSON.stringify(a.meta || a.diff).slice(0, 100) : ''}</span> },
             ]}
