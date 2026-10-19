@@ -430,7 +430,7 @@ A release gate is done only when:
 | S0-05 migration script | DONE | `scripts/migrate-v2.js`; dry-run + `--apply` + backup; tested on temp copy |
 | S0-06 flags / fake toasts | PARTIAL | `lib/flags.js`; bulk PDF + ZIP/PDF imports + request-access fakes removed/gated |
 | S0-07 gate tests | TODO | lane tests land with each workstream |
-| Gate A | IN PROGRESS | C1–C3/C8 done; B1–B6 engine done; E1/E4/E5 done; G3 done; A security, D grading, G platform, F comms/exam running |
+| Gate A | IN PROGRESS | C1–C3/C8 done; B1–B6 engine done; E1/E4/E5 done; G1/G2/G7 + OpenAPI JSON done; A security, D grading, F comms/exam running |
 | Gate B | TODO | |
 | Gate C | TODO | |
 | Gate D | TODO | |
