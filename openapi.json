@@ -768,6 +768,41 @@
         ]
       }
     },
+    "/api/contests/{id}/news.rss": {
+      "get": {
+        "tags": [
+          "comms"
+        ],
+        "summary": "RSS 2.0 feed for visible announcements",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          }
+        ]
+      }
+    },
+    "/api/contests/{id}/news/{nid}/read": {
+      "post": {
+        "tags": [
+          "comms"
+        ],
+        "summary": "Mark an announcement read for the caller",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ContestId"
+          },
+          {
+            "name": "nid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/contests/{id}/subpages": {
       "get": {
         "tags": [
