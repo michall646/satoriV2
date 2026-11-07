@@ -220,9 +220,16 @@ function buildRanking(c, me, opts = {}) {
     ? teams.map((x) => ({ id: `t:${x.id}`, name: x.scoreboardName || x.name || `team-${x.id}`, members: teamMemberLogins(x) }))
     : (c.members || []).map((id) => { const x = store.get('users', id); return { id: `u:${id}`, name: x ? x.login : String(id) }; });
   // B5: a submit whose team is not part of this contest is ignored.
-  const subs = store.query('submits', (s) => String(s.contestId) === String(c.id) && !s.sampleOnly)
+  let subs = store.query('submits', (s) => String(s.contestId) === String(c.id) && !s.sampleOnly)
     .filter((s) => s.teamId == null || s.teamId === '' || teamIds.has(String(s.teamId)))
     .map((s) => ({ ...s, contestantId: contestantKey(s, teamMode, teamIds) }));
+  const replayAtMs = opts.at ? new Date(opts.at).getTime() : (Number.isFinite(opts.nowMs) ? opts.nowMs : NaN);
+  if (Number.isFinite(replayAtMs)) {
+    subs = subs.filter((s) => {
+      const t = new Date(s.createdAt).getTime();
+      return !Number.isFinite(t) || t <= replayAtMs;
+    });
+  }
   const dl = contestDeadlines(c);
   const scoring = settings.scoring || {};
   // B6: settings.penaltyMin is canonical; scoring.wrongTryMin is the legacy fallback.
@@ -234,7 +241,7 @@ function buildRanking(c, me, opts = {}) {
     freezeAtIso: c.freezeAt || null,
     unfreezeAtIso: unfreezeAt,
     unfrozenView: Boolean(opts.unfrozen),
-    nowMs: opts.nowMs,
+    nowMs: Number.isFinite(replayAtMs) ? replayAtMs : opts.nowMs,
   };
   const frozen = isFrozen(freezeOpts);
   const visibleSubs = filterFrozenSubmits(subs, freezeOpts);
@@ -248,7 +255,19 @@ function buildRanking(c, me, opts = {}) {
     maxTries: scoring.maxTries || undefined,
   };
   const problems = [...probs].sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''))).map((x) => ({ id: x.id, code: x.code, name: x.name }));
-  const base = { contestMode: c.mode, problems, freezeAt: c.freezeAt || null, unfreezeAt, frozen, penaltyMin, deadlines: dl.deadlines, deadlinePolicy: dl.policy };
+  const base = {
+    contestMode: c.mode,
+    problems,
+    startAt: c.startAt || null,
+    endAt,
+    freezeAt: c.freezeAt || null,
+    unfreezeAt,
+    frozen,
+    replayAt: Number.isFinite(replayAtMs) ? new Date(replayAtMs).toISOString() : null,
+    penaltyMin,
+    deadlines: dl.deadlines,
+    deadlinePolicy: dl.policy,
+  };
   if (mode === 'IOI') {
     const rows = attachMembers(rankIOI({ contestants, submits: visibleSubs, problems: probs, ...scoreOpts, ...freezeOpts }), contestants);
     return { ...base, mode, rows, me: rankMe(rows, me) };
@@ -274,4 +293,69 @@ function buildRanking(c, me, opts = {}) {
   return { ...base, mode: 'ICPC', rows, me: rankMe(rows, me) };
 }
 
-module.exports = { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, normalizeExam, parseGradeScale, resolveGradeScale, gradeFromScale, resolveScoreboardMode, csvCell, icsText, rankMe, buildRanking, mySessions, myTeams };
+function buildReplayData(c, me, opts = {}) {
+  const mode = normalizeScoreboardMode(opts.mode) || resolveScoreboardMode(c);
+  const settings = c.settings || {};
+  const probs = store.query('problems', (x) => String(x.contestId) === String(c.id));
+  const teams = store.query('teams', (x) => String(x.contestId) === String(c.id));
+  const teamIds = new Set(teams.map((x) => String(x.id)));
+  const teamMode = c.teamMode === true;
+  const contestants = teamMode && teams.length
+    ? teams.map((x) => ({ id: `t:${x.id}`, name: x.scoreboardName || x.name || `team-${x.id}`, members: teamMemberLogins(x) }))
+    : (c.members || []).map((id) => { const x = store.get('users', id); return { id: `u:${id}`, name: x ? x.login : String(id) }; });
+
+  const endAt = resolveContestEnd(c);
+  const unfreezeAt = c.freezeAt ? (settings.unfreezeAt || endAt || null) : null;
+  const isJury = opts.isJury || false;
+  const unfrozenView = Boolean(opts.unfrozen) || isJury;
+  const currentlyFrozen = isFrozen({
+    freezeAtIso: c.freezeAt || null,
+    unfreezeAtIso: unfreezeAt,
+    unfrozenView: Boolean(opts.unfrozen),
+  });
+
+  const subs = store.query('submits', (s) => String(s.contestId) === String(c.id) && !s.sampleOnly)
+    .filter((s) => s.teamId == null || s.teamId === '' || teamIds.has(String(s.teamId)))
+    .map((s) => {
+      const cid = contestantKey(s, teamMode, teamIds);
+      const isSubFrozen = currentlyFrozen && !unfrozenView && Boolean(c.freezeAt && new Date(s.createdAt) > new Date(c.freezeAt));
+      return {
+        id: s.id,
+        contestantId: cid,
+        problemId: s.problemId,
+        createdAt: s.createdAt,
+        status: isSubFrozen ? '?' : s.status,
+        points: isSubFrozen ? null : s.points,
+        frozen: isSubFrozen,
+        realStatus: unfrozenView ? s.status : undefined,
+      };
+    })
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  const problems = [...probs]
+    .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')))
+    .map((x) => ({ id: x.id, code: x.code, name: x.name }));
+
+  const dl = contestDeadlines(c);
+  const scoring = settings.scoring || {};
+  const penaltyMin = settings.penaltyMin ?? scoring.wrongTryMin ?? c.penalty ?? 20;
+
+  return {
+    mode,
+    contestMode: c.mode,
+    startAt: c.startAt || null,
+    endAt,
+    freezeAt: c.freezeAt || null,
+    unfreezeAt,
+    frozen: currentlyFrozen,
+    canUnfreeze: Boolean(c.freezeAt && (isJury || !currentlyFrozen || (endAt && new Date() >= new Date(endAt)))),
+    penaltyMin,
+    deadlines: dl.deadlines,
+    deadlinePolicy: dl.policy,
+    problems,
+    contestants,
+    events: subs,
+  };
+}
+
+module.exports = { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, normalizeExam, parseGradeScale, resolveGradeScale, gradeFromScale, resolveScoreboardMode, csvCell, icsText, rankMe, buildRanking, buildReplayData, mySessions, myTeams };

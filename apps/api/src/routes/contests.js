@@ -8,7 +8,7 @@ const {
   canListContest, contestVisibility, normalizeContestVisibility,
   isContestMember, teamHasMember,
 } = require('../lib/authz');
-const { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, buildRanking, csvCell, icsText, normalizeExam } = require('../lib/contestAccess');
+const { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, buildRanking, buildReplayData, csvCell, icsText, normalizeExam } = require('../lib/contestAccess');
 const { normalizeContestTime, resolveContestEnd } = require('../lib/contestTime');
 const { isAccepted } = require('../lib/ranking');
 const { releaseState, computeRowGrade } = require('./grades');
@@ -445,7 +445,7 @@ async function handle(req, res, url, p, m) {
   }
 
   // contest sub-routes
-  let mt = p.match(/^\/api\/contests\/(\d+)\/(apply|members|members\/approve|members\/csv|duplicate|problems|rankings\/live|ranking|ranking\.csv|grade|grade\.ics|deadlines\/bulk-extend|audit)$/);
+  let mt = p.match(/^\/api\/contests\/(\d+)\/(apply|members|members\/approve|members\/csv|duplicate|problems|rankings\/live|ranking|ranking\.csv|ranking\/replay|grade|grade\.ics|deadlines\/bulk-extend|audit)$/);
   if (mt && (m === 'GET' || m === 'POST')) {
     const cid = mt[1];
     const act = mt[2];
@@ -721,6 +721,20 @@ async function handle(req, res, url, p, m) {
       req.on('close', () => clearInterval(iv));
       return true;
     }
+    if (act === 'ranking/replay' && m === 'GET') {
+      const me = authUser(req);
+      if (!canReadContest(c, me)) return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
+      if (boardModeOf(c) === 'hidden' && !canManageContest(me, c)) {
+        return send(res, 403, { error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.', hint: 'It becomes visible after the contest.' } });
+      }
+      const isJury = canManageContest(me, c);
+      const data = buildReplayData(c, me, {
+        mode: u.searchParams.get('mode'),
+        unfrozen: u.searchParams.get('unfrozen') === '1',
+        isJury,
+      });
+      return send(res, 200, data);
+    }
     if ((act === 'ranking' || act === 'ranking.csv') && m === 'GET') {
       const me = authUser(req);
       if (!canReadContest(c, me)) return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
@@ -730,6 +744,7 @@ async function handle(req, res, url, p, m) {
       const body = filterBoard(c, me, buildRanking(c, me, {
         mode: u.searchParams.get('mode'),
         unfrozen: u.searchParams.get('unfrozen') === '1',
+        at: u.searchParams.get('at'),
       }));
       if (act === 'ranking') return send(res, 200, body);
       const cellText = (cell) => (cell == null ? '' : typeof cell === 'object' ? String(cell.text ?? cell.points ?? '') : String(cell));

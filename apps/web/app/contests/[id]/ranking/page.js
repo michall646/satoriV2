@@ -22,6 +22,149 @@ export default function RankingPage({ params }) {
   const [meLogin, setMeLogin] = useState(null);
   const [meStanding, setMeStanding] = useState(null);
   const [penaltyMin, setPenaltyMin] = useState(20);
+  const [replayActive, setReplayActive] = useState(false);
+  const [replayData, setReplayData] = useState(null);
+  const [replayTimeMs, setReplayTimeMs] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState(10);
+  const [unfreezeRevealed, setUnfreezeRevealed] = useState(false);
+
+  function formatElapsed(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return '0:00';
+    const totalMin = Math.floor(ms / 60000);
+    const h = Math.floor(totalMin / 60);
+    const m = String(totalMin % 60).padStart(2, '0');
+    return `${h}:${m}`;
+  }
+
+  async function toggleReplay() {
+    if (replayActive) {
+      setReplayActive(false);
+      setIsPlaying(false);
+      return;
+    }
+    try {
+      const data = await api(`/api/contests/${params.id}/ranking/replay${unfreezeRevealed ? '?unfrozen=1' : ''}`);
+      setReplayData(data);
+      const startMs = new Date(data.startAt || data.events[0]?.createdAt || Date.now() - 3600000).getTime();
+      const endMs = new Date(data.endAt || data.events[data.events.length - 1]?.createdAt || Date.now()).getTime();
+      setReplayTimeMs(endMs);
+      setReplayActive(true);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function toggleUnfreezeReveal() {
+    const nextRevealed = !unfreezeRevealed;
+    setUnfreezeRevealed(nextRevealed);
+    try {
+      const data = await api(`/api/contests/${params.id}/ranking/replay${nextRevealed ? '?unfrozen=1' : ''}`);
+      setReplayData(data);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function computeReplayRows(data, timeMs, isICPC, penalty = 20, unfreeze = false) {
+    if (!data || !data.contestants) return [];
+    const startMs = new Date(data.startAt || (data.events[0]?.createdAt) || 0).getTime();
+    const visibleEvents = (data.events || []).filter((e) => new Date(e.createdAt).getTime() <= timeMs);
+
+    if (isICPC) {
+      const computed = data.contestants.map((ct) => {
+        const subs = visibleEvents.filter((e) => e.contestantId === ct.id);
+        let solved = 0;
+        let totalPenalty = 0;
+        const cells = {};
+        for (const p of (data.problems || [])) {
+          const pSubs = subs.filter((e) => String(e.problemId) === String(p.id));
+          let tries = 0;
+          let solvedTry = null;
+          let solvedMin = null;
+          for (const s of pSubs) {
+            if (solvedTry !== null) continue;
+            const isOK = (s.status === 'OK') || (unfreeze && s.realStatus === 'OK');
+            tries += 1;
+            if (isOK) {
+              solvedTry = tries;
+              const diffMs = Math.max(0, new Date(s.createdAt).getTime() - startMs);
+              solvedMin = Math.floor(diffMs / 60000);
+              break;
+            }
+          }
+          if (solvedTry !== null) {
+            solved += 1;
+            const pCost = solvedMin + (solvedTry - 1) * penalty;
+            totalPenalty += pCost;
+            const h = Math.floor(solvedMin / 60);
+            const m = String(solvedMin % 60).padStart(2, '0');
+            cells[p.id] = { text: `${solvedTry} (${h}:${m})`, points: 100, solved: true };
+          } else if (tries > 0) {
+            const hasFrozen = pSubs.some((s) => s.frozen && !unfreeze);
+            cells[p.id] = { text: hasFrozen ? `${tries} ?` : `${tries}`, points: 0, tries };
+          } else {
+            cells[p.id] = { text: '-', points: 0 };
+          }
+        }
+        return {
+          contestantId: ct.id,
+          name: ct.name,
+          members: ct.members,
+          solved,
+          time: totalPenalty,
+          cells,
+        };
+      });
+      computed.sort((a, b) => b.solved - a.solved || a.time - b.time || String(a.name).localeCompare(String(b.name)));
+      computed.forEach((r, i) => { r.rank = i + 1; });
+      return computed;
+    } else {
+      const computed = data.contestants.map((ct) => {
+        const subs = visibleEvents.filter((e) => e.contestantId === ct.id);
+        let total = 0;
+        const cells = {};
+        for (const p of (data.problems || [])) {
+          const pSubs = subs.filter((e) => String(e.problemId) === String(p.id));
+          let best = 0;
+          let hasPending = false;
+          for (const s of pSubs) {
+            const pts = unfreeze ? (s.realStatus === 'OK' ? 100 : Number(s.points || 0)) : (s.frozen ? 0 : Number(s.points || (s.status === 'OK' ? 100 : 0)));
+            if (pts > best) best = pts;
+            if (s.frozen && !unfreeze) hasPending = true;
+          }
+          total += best;
+          cells[p.id] = { text: hasPending ? `${best} ?` : String(best), points: best };
+        }
+        return { contestantId: ct.id, name: ct.name, members: ct.members, total, cells };
+      });
+      computed.sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name)));
+      computed.forEach((r, i) => { r.rank = i + 1; });
+      return computed;
+    }
+  }
+
+  const startMs = replayData
+    ? new Date(replayData.startAt || replayData.events?.[0]?.createdAt || Date.now() - 3600000).getTime()
+    : Date.now() - 3600000;
+  const endMs = replayData
+    ? new Date(replayData.endAt || replayData.events?.[replayData.events.length - 1]?.createdAt || Date.now()).getTime()
+    : Date.now();
+
+  useEffect(() => {
+    if (!replayActive || !isPlaying || !replayData) return;
+    const interval = setInterval(() => {
+      setReplayTimeMs((prev) => {
+        const next = (prev || startMs) + playSpeed * 1000;
+        if (next >= endMs) {
+          setIsPlaying(false);
+          return endMs;
+        }
+        return next;
+      });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [replayActive, isPlaying, playSpeed, replayData, endMs, startMs]);
 
   async function load(unfrozenView = false) {
     const query = unfrozenView ? '?unfrozen=1' : '';
@@ -82,9 +225,11 @@ export default function RankingPage({ params }) {
     return () => es.close();
   }, [params.id]);
 
-  const displayRows = boardMode === 'me-only' && meLogin
-    ? rows?.filter((r) => r.name === meLogin)
-    : rows;
+  const displayRows = replayActive && replayData
+    ? computeReplayRows(replayData, replayTimeMs, mode === 'ICPC', penaltyMin, unfreezeRevealed)
+    : (boardMode === 'me-only' && meLogin
+      ? rows?.filter((r) => r.name === meLogin)
+      : rows);
 
   const shown = useMemo(() => {
     if (!displayRows) return [];
@@ -157,10 +302,62 @@ export default function RankingPage({ params }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <Button variant={replayActive ? 'primary' : 'secondary'} onClick={toggleReplay}>
+            {replayActive ? t.rank_replay_live : t.rank_replay}
+          </Button>
           <Button variant="secondary" onClick={exportCSV}>{t.rank_export_csv}</Button>
           <Button variant="ghost" onClick={() => window.print()}>{t.rank_print}</Button>
         </div>
       </div>
+      {replayActive ? (
+        <div className="card p-3 mb-3 flex flex-col gap-2.5" style={{ background: 'var(--panel-wash)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between gap-4 flex-wrap text-sm">
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" compact onClick={() => setIsPlaying(!isPlaying)}>
+                {isPlaying ? t.rank_replay_pause : t.rank_replay_play}
+              </Button>
+              <div className="flex items-center gap-1 text-xs">
+                <span style={{ color: 'var(--muted)' }}>{t.rank_replay_speed}:</span>
+                {[1, 5, 20, 60].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setPlaySpeed(s)}
+                    className={`px-1.5 py-0.5 rounded text-xs font-mono ${playSpeed === s ? 'bg-primary text-white font-bold' : 'hover:bg-hover'}`}
+                  >
+                    {s}x
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-sm font-mono" style={{ color: 'var(--muted)' }}>
+              <span>{formatElapsed((replayTimeMs || startMs) - startMs)}</span>
+              <span className="mx-1.5">/</span>
+              <span>{formatElapsed(endMs - startMs)}</span>
+              <span className="ml-2 text-xs" style={{ color: 'var(--muted)' }}>({new Date(replayTimeMs || startMs).toLocaleTimeString()})</span>
+            </div>
+            {replayData?.canUnfreeze ? (
+              <Button variant={unfreezeRevealed ? 'primary' : 'secondary'} compact onClick={toggleUnfreezeReveal}>
+                {unfreezeRevealed ? t.rank_frozen : t.rank_replay_unfreeze}
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={startMs}
+              max={endMs}
+              value={replayTimeMs || startMs}
+              onChange={(e) => {
+                setIsPlaying(false);
+                setReplayTimeMs(Number(e.target.value));
+              }}
+              className="w-full cursor-pointer accent-primary"
+              aria-label="Replay timeline scrubber"
+            />
+          </div>
+        </div>
+      ) : null}
       {frozen ? (
         <Notice tone="warn" role="alert" title={t.rank_frozen_msg} icon={<Icon name="lock" size={15} />} className="mb-2">
           {unfreezeAt ? <Countdown to={unfreezeAt} label={t.rank_to_unfreeze} /> : null}
