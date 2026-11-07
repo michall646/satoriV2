@@ -186,7 +186,7 @@ test('LABS board total equals /grade total (S1-3)', async () => {
   const waJudged = await waitJudged(waSub.body.id, janTok);
   assert.equal(waJudged.status, 'WA');
 
-  const board = await api(`/api/contests/${cid}/ranking`);
+  const board = await api(`/api/contests/${cid}/ranking`, {}, teacherTok);
   assert.equal(board.status, 200);
   assert.equal(board.body.mode, 'LABS');
   const row = board.body.rows.find((x) => x.contestantId === `u:${studentId}`);

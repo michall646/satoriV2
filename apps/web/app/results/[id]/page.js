@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, API, STR, getLang } from '../../../lib/client';
-import { Button, Card, CodeBlock, CopyButton, DiffView, Skeleton, Table, Textarea, VerdictCell, VerdictPill } from '../../../components/ui';
+import { api, API, STR, getLang, withAuth } from '../../../lib/client';
+import { Button, Card, CodeBlock, CopyButton, DiffView, Icon, Skeleton, Table, Textarea, VerdictCell, VerdictPill } from '../../../components/ui';
 
 const DOCS = 'https://docs.satori.example/judge#verdicts';
 
@@ -72,7 +72,7 @@ export default function SubmitPage({ params }) {
   const [appeal, setAppeal] = useState({ open: false, text: '', sending: false, error: '', status: null, verdict: null });
   useEffect(() => {
     api(`/api/submits/${params.id}`).then(setS).catch(() => {});
-    const es = new EventSource(`${API}/api/submits/${params.id}/events`);
+    const es = new EventSource(withAuth(`${API}/api/submits/${params.id}/events`));
     es.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
@@ -252,7 +252,7 @@ export default function SubmitPage({ params }) {
                 onChange={(e) => setAppeal((a) => ({ ...a, text: e.target.value }))}
                 hint={txt.appealHint}
               />
-              {appeal.error ? <p role="alert" className="text-xs" style={{ color: 'var(--wa-text)' }}><span aria-hidden="true">⚠ </span>{appeal.error}</p> : null}
+              {appeal.error ? <p role="alert" className="text-xs" style={{ color: 'var(--wa-text)' }}><Icon name="alert" size={12} className="inline align-[-2px] mr-1" />{appeal.error}</p> : null}
               <div className="flex gap-2">
                 <Button type="submit" disabled={appeal.sending || !String(appeal.text || '').trim()}>{txt.appealSend}</Button>
                 <Button variant="secondary" onClick={() => setAppeal((a) => ({ ...a, open: false, error: '' }))}>{t.common_close}</Button>

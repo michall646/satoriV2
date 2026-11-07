@@ -3,7 +3,7 @@
 // future scheduledAt are filtered out by the API for non-admins.
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { api, API, STR, getLang } from '../../../../lib/client';
+import { api, API, STR, getLang, withAuth } from '../../../../lib/client';
 import { Badge, Button, EmptyState, Markdown, Skeleton } from '../../../../components/ui';
 import { toast } from '../../../../components/ui/Toast';
 
@@ -96,7 +96,7 @@ export default function AnnouncementsPage({ params }) {
         <h1 className="type-h1">{t.announcements}</h1>
         {unread ? <Badge tone="accent">{unread} {txt.unread}</Badge> : null}
         <span className="ml-auto flex items-center gap-3">
-          <a className="text-sm underline focus-ring rounded" href={`${API}/api/contests/${params.id}/news.rss`} target="_blank" rel="noreferrer">{txt.rss}</a>
+          <a className="text-sm underline focus-ring rounded" href={withAuth(`${API}/api/contests/${params.id}/news.rss`)} target="_blank" rel="noreferrer">{txt.rss}</a>
           <Button variant="secondary" className="!py-0.5" onClick={load}>{txt.refresh}</Button>
         </span>
       </div>
@@ -107,7 +107,7 @@ export default function AnnouncementsPage({ params }) {
             const dateIso = n.scheduledAt || n.publishedAt || n.createdAt || '';
             const attachments = attachmentList(n.attachments);
             return (
-              <li key={n.id} id={`announcement-${n.id}`} className="rounded-xl p-4" style={{ border: '1px solid var(--border)' }}>
+              <li key={n.id} id={`announcement-${n.id}`} className="rounded-lg p-4" style={{ border: '1px solid var(--border)' }}>
                 <div className="flex items-center gap-2 flex-wrap text-xs" style={{ color: 'var(--muted)' }}>
                   <Badge tone={n.read ? 'neutral' : 'accent'}>{n.read ? txt.read : txt.unread}</Badge>
                   {n.pinned ? <Badge tone="warn">{txt.pinned}</Badge> : null}

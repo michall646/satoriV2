@@ -95,6 +95,7 @@ test('contests list: archived toggle + role=other (S2-8)', async () => {
 test('ranking.csv downloads the real scoreboard (S2-8)', async () => {
   const cid = await mkContest('Ranking csv');
   const pid = await mkProblem(cid, 'A');
+  await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ visibility: 'public' }) }, teacherTok);
   await addMember(cid, 'jan_kowalski');
   const { store } = require('../apps/api/src/lib/store');
   const at = new Date().toISOString();
@@ -120,6 +121,7 @@ test('ranking.csv downloads the real scoreboard (S2-8)', async () => {
 test('grade.ics is useful with or without late policy (S3-4)', async () => {
   const cid = await mkContest('ICS, test');
   const pid = await mkProblem(cid, 'A');
+  await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ visibility: 'public' }) }, teacherTok);
   const { store } = require('../apps/api/src/lib/store');
   store.update('contests', cid, { startAt: new Date().toISOString(), endAt: new Date(Date.now() + 86400000).toISOString() });
 

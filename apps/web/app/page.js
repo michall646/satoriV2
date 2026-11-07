@@ -2,8 +2,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { api, API, STR, getLang } from '../lib/client';
-import { EmptyState, ErrorState, Skeleton, Tabs, VerdictPill } from '../components/ui';
+import { api, API, STR, getLang, withAuth } from '../lib/client';
+import { EmptyState, ErrorState, Icon, Skeleton, Tabs, VerdictPill } from '../components/ui';
 import { Countdown } from '../components/ui/Code';
 import FluidRippleBackground from '../components/FluidRippleBackground';
 import EyebrowFx from '../components/EyebrowFx';
@@ -541,7 +541,7 @@ export default function Home() {
     if (!live.length) return;
     const sources = live.map((s) => {
       try {
-        const es = new EventSource(`${API}/api/submits/${s.id}/events`);
+        const es = new EventSource(withAuth(`${API}/api/submits/${s.id}/events`));
         es.onmessage = (ev) => {
           let d = null;
           try { d = JSON.parse(ev.data); } catch { return; }
@@ -751,17 +751,17 @@ function GuestHome({ status, open }) {
       <section className="pt-10" style={{ borderTop: '1px solid var(--border)' }}>
         <EyebrowFx text={t.guest_vs_eyebrow} />
         <h2 className="type-h1 mt-2">{t.guest_vs_h}</h2>
-        <p className="type-mono text-xs mt-3" style={{ color: 'var(--muted)' }} aria-hidden="true"><span style={{ color: 'var(--wa)' }}>✕</span> original satori · <span style={{ color: 'var(--ok)' }}>✓</span> satori v2</p>
+        <p className="type-mono text-xs mt-3" style={{ color: 'var(--muted)' }} aria-hidden="true"><Icon name="x" size={11} className="inline align-[-1px]" style={{ color: 'var(--wa)' }} /> original satori · <Icon name="check" size={11} className="inline align-[-1px]" style={{ color: 'var(--ok)' }} /> satori v2</p>
         <dl className="mt-4">
           {GUEST_VS.map(([k, o, n]) => (
             <div key={k} className="py-4 grid sm:grid-cols-[8rem_1fr_1fr] gap-2 sm:gap-6 items-start" style={{ borderTop: '1px solid var(--border)' }}>
               <dt className="font-semibold text-sm">{t[k]}</dt>
               <dd className="text-sm flex gap-2 items-start" style={{ color: 'var(--muted)' }}>
-                <span aria-hidden="true" className="shrink-0" style={{ color: 'var(--wa)' }}>✕</span>
+                <Icon name="x" size={13} className="shrink-0 mt-1" style={{ color: 'var(--wa)' }} />
                 <span><span className="sr-only">{t.guest_vs_sr_old}</span>{t[o]}</span>
               </dd>
               <dd className="text-sm flex gap-2 items-start">
-                <span aria-hidden="true" className="shrink-0" style={{ color: 'var(--ok)' }}>✓</span>
+                <Icon name="check" size={13} className="shrink-0 mt-1" style={{ color: 'var(--ok)' }} />
                 <span><span className="sr-only">{t.guest_vs_sr_new}</span>{t[n]}</span>
               </dd>
             </div>

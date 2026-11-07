@@ -1,8 +1,8 @@
 // Ranking: single mode per contest (Plan B), per-problem columns, CSV export, ticker.
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { api, API, STR, getLang } from '../../../../lib/client';
-import { Badge, Button, EmptyState, Skeleton, Table } from '../../../../components/ui';
+import { api, API, STR, getLang, withAuth } from '../../../../lib/client';
+import { Badge, Button, EmptyState, Icon, Notice, Skeleton, Table } from '../../../../components/ui';
 import { Countdown } from '../../../../components/ui/Code';
 
 export default function RankingPage({ params }) {
@@ -65,7 +65,7 @@ export default function RankingPage({ params }) {
     const unfrozenView = new URLSearchParams(window.location.search).get('unfrozen') === '1';
     load(unfrozenView);
     const query = unfrozenView ? '?unfrozen=1' : '';
-    const es = new EventSource(`${API}/api/contests/${params.id}/rankings/live${query}`);
+    const es = new EventSource(withAuth(`${API}/api/contests/${params.id}/rankings/live${query}`));
     es.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
@@ -133,20 +133,63 @@ export default function RankingPage({ params }) {
 
   return (
     <div>
-      <div className="flex gap-2 items-center flex-wrap mb-6">
-        <h1 className="type-h1">{t.ranking}</h1>
-        <Badge tone="warn">{mode}{contestMode && contestMode !== mode ? ` ${t.rank_contest_suffix.replace('{mode}', contestMode)}` : ''}</Badge>
-        {freeze ? <Badge tone={frozen ? 'danger' : 'warn'}>{frozen ? t.rank_frozen : <span>{t.rank_freeze} <Countdown to={freeze} /></span>}</Badge> : null}
-        {deadlinePolicy?.enabled ? <Badge tone="warn" title={t.rank_late_mode_title.replace('{m}', deadlinePolicy.lateMode).replace('{v}', String(deadlinePolicy.penaltyValue)).replace('{unit}', deadlinePolicy.penaltyKind)}>{t.rank_deadlines} {deadlinePolicy.lateMode} {t.rank_late_mark}</Badge> : null}
-        <Button variant="secondary" onClick={exportCSV} className="ml-auto">{t.rank_export_csv}</Button>
-        <Button variant="secondary" onClick={() => window.print()}>{t.rank_print}</Button>
+      <div className="flex items-start justify-between gap-x-6 gap-y-3 flex-wrap mb-4">
+        <div className="min-w-0">
+          <h1 className="type-h1">{t.ranking}</h1>
+          <div className="flex items-center gap-2 flex-wrap mt-2 min-h-[22px]">
+            <Badge tone="neutral">{mode}</Badge>
+            {contestMode && contestMode !== mode ? <span className="type-small" style={{ color: 'var(--muted)' }}>{t.rank_contest_suffix.replace('{mode}', contestMode)}</span> : null}
+            {freeze && !frozen ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Badge tone="neutral">{t.rank_freeze}</Badge>
+                <span className="type-mono" style={{ color: 'var(--muted)' }}><Countdown to={freeze} /></span>
+              </span>
+            ) : null}
+            {deadlinePolicy?.enabled ? (
+              <Badge tone="neutral" title={t.rank_late_mode_title.replace('{m}', deadlinePolicy.lateMode).replace('{v}', String(deadlinePolicy.penaltyValue)).replace('{unit}', deadlinePolicy.penaltyKind)}>
+                <span style={{ color: 'var(--muted)' }}>{t.rank_deadlines}</span>
+                <span className="mx-1" style={{ opacity: 0.45 }}>·</span>
+                <span>{deadlinePolicy.lateMode}</span>
+                <span className="mx-1" style={{ opacity: 0.45 }}>·</span>
+                <span style={{ color: 'var(--muted)' }}>{t.rank_late_mark}</span>
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <Button variant="secondary" onClick={exportCSV}>{t.rank_export_csv}</Button>
+          <Button variant="ghost" onClick={() => window.print()}>{t.rank_print}</Button>
+        </div>
       </div>
-      {boardMode === 'hidden' ? <div className="border rounded px-2 py-1 text-sm mt-1 mb-4" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }} role="status">{t.rank_board_hidden}</div> : null}
-      {boardMode === 'me-only' ? <p className="text-xs text-muted mt-1 mb-4">{t.rank_board_private}</p> : null}
-      {frozen ? <div className="border rounded px-2 py-1 text-sm mt-1 mb-4" style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }} role="alert">{t.rank_frozen_msg}{unfreezeAt ? <span> (<Countdown to={unfreezeAt} label={t.rank_to_unfreeze} />)</span> : ''}.</div> : null}
-      {meStanding ? <p className="text-sm mt-1 mb-3" style={{ color: 'var(--muted)' }}>{t.rank_your_standing} <strong>#{meStanding.rank}</strong>{meStanding.total != null ? ` · ${meStanding.total}` : ''}</p> : null}
-      {ticker.length ? <p aria-live="polite" className="text-xs mt-1 mb-4 border rounded px-2 py-1">ticker: {ticker.map((t) => t.question || t).join(' · ')}</p> : null}
-      <div className="mt-6">
+      {frozen ? (
+        <Notice tone="warn" role="alert" title={t.rank_frozen_msg} icon={<Icon name="lock" size={15} />} className="mb-2">
+          {unfreezeAt ? <Countdown to={unfreezeAt} label={t.rank_to_unfreeze} /> : null}
+        </Notice>
+      ) : null}
+      {boardMode === 'hidden' ? (
+        <Notice tone="info" icon={<Icon name="eyeOff" size={15} />} className="mb-2">
+          {t.rank_board_hidden}
+        </Notice>
+      ) : null}
+      {boardMode === 'me-only' ? (
+        <Notice tone="info" icon={<Icon name="user" size={15} />} className="mb-2">
+          {t.rank_board_private}
+        </Notice>
+      ) : null}
+      {meStanding ? (
+        <p className="flex items-baseline gap-2 text-sm mb-2" style={{ color: 'var(--muted)' }}>
+          {t.rank_your_standing}
+          <strong className="type-mono" style={{ color: 'var(--fg)', fontSize: 13 }}>#{meStanding.rank}</strong>
+          {meStanding.total != null ? <span className="type-mono" style={{ color: 'var(--muted)' }}>· {meStanding.total} {t.rank_pts}</span> : null}
+        </p>
+      ) : null}
+      {ticker.length ? (
+        <Notice icon={<Icon name="message" size={15} />} className="mb-2" aria-live="polite">
+          <p className="eyebrow">{t.rank_ticker}</p>
+          <p className="text-sm leading-5 mt-0.5" style={{ color: 'var(--fg)' }}>{ticker.map((item) => item.question || item).join(' · ')}</p>
+        </Notice>
+      ) : null}
+      <div className="mt-1">
       {boardMode === 'hidden' ? <EmptyState line={t.rank_empty_hidden} /> : !shown.length ? <EmptyState line={t.rank_empty_rows} /> : (
         <Table
           stickyHeader stickyFirstCols stickyLast sort={sort} onSort={onSort}

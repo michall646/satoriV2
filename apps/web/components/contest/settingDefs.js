@@ -11,6 +11,7 @@ export const INFO = {
   scoreboardMode: 'sdef_i_scoreboardMode',
   scoreRule: 'sdef_i_scoreRule',
   registration: 'sdef_i_registration',
+  contestVisibility: 'sdef_i_contestVisibility',
   autoApproveRegex: 'sdef_i_autoApproveRegex',
   startAt: 'sdef_i_startAt',
   stopAt: 'sdef_i_stopAt',
@@ -193,5 +194,7 @@ export function summarize(form, t) {
     out.push(t.sdef_sum_practice);
   }
   out.push(fill(t.sdef_sum_joining, { v: form.registration || 'open' }));
+  const vis = form.visibility || 'members';
+  out.push(fill(t.sdef_sum_visibility, { v: t[`mset_vis_${vis}`] || vis }));
   return out;
 }

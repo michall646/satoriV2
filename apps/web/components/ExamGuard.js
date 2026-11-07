@@ -6,6 +6,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/client';
+import { Icon, Notice } from './ui';
 import { useLang } from './ShellControls';
 
 const TXT = {
@@ -156,24 +157,33 @@ export default function ExamGuard({ contestId, staff = false }) {
   if (settings.shuffle) rules.push(txt.shuffleRule);
 
   return (
-    <div
-      role="region"
-      aria-label={txt.mode}
-      className="sticky top-0 z-30 mb-3 rounded-xl border px-3 py-2 text-xs"
-      style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }}
-    >
-      <div className="flex gap-2 items-center flex-wrap">
-        <strong aria-hidden="true">🔒</strong>
-        <strong>{txt.mode}</strong>
-        {rules.length ? <span>{rules.join(' · ')}</span> : null}
-        {settings.fullscreen && !inFullscreen ? (
-          <button type="button" onClick={enterFullscreen} className="border px-2 rounded focus-ring">{txt.enter}</button>
+    <div className="sticky top-0 z-30 mb-3">
+      <Notice
+        role="region"
+        aria-label={txt.mode}
+        dense
+        icon={<Icon name="lock" size={16} />}
+        title={(
+          <span className="flex items-baseline gap-2 flex-wrap">
+            {txt.mode}
+            {rules.length ? <span className="font-normal text-xs" style={{ color: 'var(--muted)' }}>{rules.join(' · ')}</span> : null}
+          </span>
+        )}
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>{txt.honest}</span>
+          {settings.fullscreen && !inFullscreen ? (
+            <button type="button" onClick={enterFullscreen} className="btn btn-secondary btn-compact focus-ring">{txt.enter}</button>
+          ) : null}
+        </div>
+        {settings.ipAllow ? <div className="mt-1">{txt.ip} <code className="type-mono">{settings.ipAllow}</code></div> : null}
+        {settings.timeWindow ? <div className="mt-1">{txt.time} <code className="type-mono">{settings.timeWindow}</code></div> : null}
+        {notice ? (
+          <p role="alert" className="mt-1 flex items-start gap-1.5" style={{ color: 'var(--wa-text)' }}>
+            <Icon name="alert" size={13} className="mt-0.5" />{notice}
+          </p>
         ) : null}
-      </div>
-      {settings.ipAllow ? <div className="mt-1">{txt.ip} <code className="type-mono">{settings.ipAllow}</code></div> : null}
-      {settings.timeWindow ? <div>{txt.time} <code className="type-mono">{settings.timeWindow}</code></div> : null}
-      <div className="mt-1" style={{ opacity: 0.8 }}>{txt.honest}</div>
-      {notice ? <div role="alert" className="mt-1"><span aria-hidden="true">⚠ </span>{notice}</div> : null}
+      </Notice>
     </div>
   );
 }

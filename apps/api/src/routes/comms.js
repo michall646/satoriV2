@@ -5,7 +5,7 @@
 const { store } = require('../lib/store');
 const { notifyUser } = require('../lib/notifications');
 const { send, sendText, readBody, rateLimited } = require('../lib/http');
-const { authUser, needAuth, forbid, audit, contestRole, canManageContest } = require('../lib/authz');
+const { authUser, needAuth, forbid, audit, contestRole, canManageContest, canReadContest } = require('../lib/authz');
 const { isConfigured, isValidEmail, sendMail, webBaseUrl } = require('../lib/mailer');
 
 const NEWS_FIELDS = ['title', 'bodyMd', 'bodyHtml', 'scheduledAt', 'attachments', 'email', 'inApp', 'pinned', 'publishedAt', 'tags'];
@@ -162,6 +162,7 @@ function newsRssXml(req, contest, rows) {
 }
 function sendNewsRss(req, res, contest) {
   const me = authUser(req);
+  if (!canReadContest(contest, me)) return notMember(res);
   const admin = canManageContest(me, contest);
   const now = Date.now();
   const rows = store.query('news', (x) => String(x.contestId) === String(contest.id) && (admin || !scheduledInFuture(x, now)));
@@ -207,6 +208,7 @@ async function handle(req, res, url, p, m) {
       // RSS is also reachable on the delegated /news path (?format=rss).
       if (act === 'news' && url.searchParams.get('format') === 'rss') return sendNewsRss(req, res, c);
       const me = authUser(req);
+      if (!canReadContest(c, me)) return notMember(res);
       const admin = act === 'news' && canManageContest(me, c);
       const now = Date.now();
       const rows = store.query(col, (x) => String(x.contestId) === String(c.id) && (act !== 'news' || admin || !scheduledInFuture(x, now)));

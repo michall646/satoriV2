@@ -2,7 +2,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { api, STR, getLang } from '../../../../../lib/client';
-import { Badge, Button, DiffView, EmptyState, Input, Skeleton, Table } from '../../../../../components/ui';
+import { Badge, Button, DiffView, EmptyState, Icon, Input, Notice, Skeleton, Table } from '../../../../../components/ui';
 import { toast } from '../../../../../components/ui/Toast';
 import { PageHeader, PageSection } from '../../../../../components/manage';
 import { useManage } from '../../../../../components/manage/context';
@@ -64,9 +64,9 @@ export default function ManageIntegrityPage({ params }) {
     <div className="w-full min-w-0 max-w-4xl">
       <PageHeader title={t.integrity} description={t.integrity_subtitle} />
 
-      <p className="text-xs mb-4 px-3 py-2 rounded" style={{ background: 'var(--accent-soft)', color: 'var(--accent-text)', border: '1px solid var(--accent-line)' }}>
+      <Notice tone="info" icon={<Icon name="info" size={16} />} dense className="mb-4">
         {t.integrity_jury_note}
-      </p>
+      </Notice>
 
       <PageSection title={t.integrity_similarity} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{t.integrity_legend}</span>}>
         <label className="text-xs flex items-center gap-3 mb-3">

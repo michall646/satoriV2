@@ -62,7 +62,7 @@ after(async () => {
 });
 
 test('IOI-style subtask scoring uses group weights', async () => {
-  const c = await api('/api/contests', { method: 'POST', ...json({ name: 'Score Probe', mode: 'IOI' }) }, teacherTok);
+  const c = await api('/api/contests', { method: 'POST', ...json({ name: 'Score Probe', mode: 'IOI', visibility: 'public' }) }, teacherTok);
   assert.equal(c.status, 201);
   const cid = c.body.id;
   const p = await api(`/api/contests/${cid}/problems`, { method: 'POST', ...json({ code: 'A', name: 'Sum', visibility: 'visible' }) }, teacherTok);
@@ -88,7 +88,7 @@ test('IOI-style subtask scoring uses group weights', async () => {
 });
 
 test('hidden problems and unopened contests block non-admin submits', async () => {
-  const c = await api('/api/contests', { method: 'POST', ...json({ name: 'Gate Probe', mode: 'ICPC' }) }, teacherTok);
+  const c = await api('/api/contests', { method: 'POST', ...json({ name: 'Gate Probe', mode: 'ICPC', visibility: 'public' }) }, teacherTok);
   const cid = c.body.id;
   const p1 = await api(`/api/contests/${cid}/problems`, { method: 'POST', ...json({ code: 'A', name: 'Open later', visibility: 'visible' }) }, teacherTok);
   const p2 = await api(`/api/contests/${cid}/problems`, { method: 'POST', ...json({ code: 'B', name: 'Draft', visibility: 'draft' }) }, teacherTok);
@@ -168,6 +168,38 @@ test('duplicate copies test cases and news; clone judges end-to-end', async () =
   assert.equal(s.status, 201);
   const judged = await waitJudged(s.body.id, teacherTok);
   assert.equal(judged.testsTotal, 2, 'clone judges against copied cases');
+});
+
+test('lifecycle moves in both directions and archived follows the stage', async () => {
+  const c = await api('/api/contests', { method: 'POST', ...json({ name: 'Lifecycle Probe', mode: 'ICPC' }) }, teacherTok);
+  assert.equal(c.status, 201);
+  const cid = c.body.id;
+
+  const running = await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ lifecycle: 'running' }) }, teacherTok);
+  assert.equal(running.status, 200);
+  assert.equal(running.body.lifecycle, 'running');
+
+  const backward = await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ lifecycle: 'registration' }) }, teacherTok);
+  assert.equal(backward.status, 200);
+  assert.equal(backward.body.lifecycle, 'registration', 'can move back');
+
+  const archived = await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ lifecycle: 'archived' }) }, teacherTok);
+  assert.equal(archived.status, 200);
+  assert.equal(archived.body.archived, true, 'archived stage sets flag');
+
+  const renamed = await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ name: 'Lifecycle Probe 2' }) }, teacherTok);
+  assert.equal(renamed.body.archived, true, 'unrelated patch keeps archived flag');
+
+  const restored = await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ lifecycle: 'finished' }) }, teacherTok);
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.lifecycle, 'finished');
+  assert.equal(restored.body.archived, false, 'leaving archived clears flag');
+
+  const invalid = await api(`/api/contests/${cid}`, { method: 'PATCH', ...json({ lifecycle: 'paused' }) }, teacherTok);
+  assert.equal(invalid.status, 422);
+  assert.equal(invalid.body.error.code, 'INVALID_LIFECYCLE');
+  const still = await api(`/api/contests/${cid}`, {}, teacherTok);
+  assert.equal(still.body.lifecycle, 'finished', 'invalid value leaves lifecycle unchanged');
 });
 
 test('delete batch: problems, test groups, contest, member, news, note, webhook', async () => {

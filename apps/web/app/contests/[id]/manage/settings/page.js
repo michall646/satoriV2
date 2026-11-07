@@ -62,6 +62,7 @@ function initSettings(contest) {
     name: contest.name || '',
     description: contest.description || '',
     mode: contest.mode || '',
+    visibility: ['public', 'members', 'hidden'].includes(contest.visibility) ? contest.visibility : 'members',
     registration: contest.registration || 'open',
     autoApproveRegex: contest.autoApproveRegex || '',
     startAt: contest.startAt || '',
@@ -128,6 +129,7 @@ export default function ManageSettingsPage({ params }) {
     const penaltyMin = Number(sc.penaltyMin ?? sc.wrongTryMin ?? settings.penalty) || 0;
     const payload = {
       name: settings.name, description: settings.description, mode: settings.mode,
+      visibility: settings.visibility || 'members',
       registration: settings.registration, autoApproveRegex: settings.autoApproveRegex,
       startAt: settings.startAt, stopAt: settings.stopAt, freezeAt: settings.freezeAt,
       // Canonical scoring mode follows the contest template; the old free-text field is gone.
@@ -207,6 +209,11 @@ export default function ManageSettingsPage({ params }) {
         </Section>
 
         <Section title={t.mset_access}>
+          <FSelect infoKey="contestVisibility" label={t.mset_visibility} value={settings.visibility || 'members'} onChange={(e) => setSettings({ ...settings, visibility: e.target.value })}>
+            <option value="members">{t.mset_vis_members}</option>
+            <option value="public">{t.mset_vis_public}</option>
+            <option value="hidden">{t.mset_vis_hidden}</option>
+          </FSelect>
           <FSelect infoKey="registration" label={t.mset_registration} value={settings.registration} onChange={(e) => setSettings({ ...settings, registration: e.target.value })}>
             <option value="open">{t.mset_reg_open}</option><option value="approval">{t.mset_reg_approval}</option><option value="invite">{t.mset_reg_invite}</option>
           </FSelect>

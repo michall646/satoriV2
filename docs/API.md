@@ -27,14 +27,29 @@ route for it yet** (tracked as B4); registration does not accept it.
 ## Contests, members, teams
 
 - `GET /api/contests?role=joined|pending|managed|other&q=&archived=yes|true|1`
-  -> `{items,total}`. Without `archived` archived contests are hidden.
+  -> `{items,total}`. Without `archived` archived contests are hidden. Contests with
+  `visibility:hidden` are omitted unless the caller is a member or admin.
 - `POST /api/contests` creates a draft. `mode` (ICPC|IOI|LABS|EXAM|PLAYGROUND|VIRTUAL)
   and `template` are stored; `endAt` is the canonical end time.
+  `visibility` is `public|members|hidden` and defaults to **members**. A contest with
+  `mode:EXAM` is always treated as members-only. Legacy `private`/`exam` values normalize
+  to `members`; an unknown value returns `422 INVALID_VISIBILITY`.
 - `GET /api/contests/:id` returns the public projection unless the caller is a contest
   admin: `members`, `pending`, `admins` and `settings.exam` are removed and replaced by
-  `memberCount`. `PATCH` and `DELETE` are contest-admin/superadmin.
+  `memberCount`. The response carries `visibility`, `membership`
+  (`joined|pending|managed|other`) and `access` (`open|locked`). A members-only contest
+  still returns card metadata to non-members with `access:locked` and without `settings`;
+  a hidden contest returns `404` outside the member/admin set.
+  `PATCH` and `DELETE` are contest-admin/superadmin.
+  `PATCH {lifecycle}` accepts any stage in either direction
+  (`draft|registration|running|finished|archived`); setting `archived` also sets the
+  `archived` flag and leaving it clears the flag. Unknown stages return `422 INVALID_LIFECYCLE`.
   First `DELETE` archives, second purges problems, tests, teams, news, subpages and clarifications.
-- `POST /api/contests/:id/apply` -> open registration joins, approval mode creates a pending row.
+- Access gates: for `members`/`hidden` contests, problems, ranking, live scoreboard, CSV,
+  ICS, grades, clarifications, announcements, subpages and submissions all require
+  membership. `members` contests remain discoverable; `hidden` ones do not.
+- `POST /api/contests/:id/apply` -> open registration joins, approval mode creates a pending
+  row. `registration:invite` returns `403 INVITE_ONLY`; the jury adds those members directly.
 - `GET|POST /api/contests/:id/members` (admins). `GET` rows include `role`
   (`participant|teacher|jury`) and pending rows report `pending`. `POST {login,role}`;
   teacher/jury are added to `members` and `admins`, and demoting to `participant`
@@ -87,10 +102,10 @@ route for it yet** (tracked as B4); registration does not accept it.
   otherwise 422 `FILENAME_CHARSET` plus a `suggestion`. Language is inferred from the
   extension unless `lang`/`language` overrides it.
 - Access: `problemId` must belong to the supplied `contestId` (403 `CONTEST_MISMATCH`).
-  `private`/`exam` contests and contests whose `mode` is `EXAM` require membership.
-  A contest `endAt` in the past returns 409 `ENDED` unless `mode=PLAYGROUND` or
-  `settings.upsolve`/`settings.allowUpsolve`/`contest.upsolve` is set; sample runs
-  bypass the end check.
+  Non-public contests (`members`/`hidden`, which is the default) require membership;
+  `EXAM` mode is always non-public. A contest `endAt` in the past returns 409 `ENDED` unless
+  `mode=PLAYGROUND` or `settings.upsolve`/`settings.allowUpsolve`/`contest.upsolve` is set;
+  sample runs bypass the end check.
   `teamId` must exist, belong to the same contest and include the caller.
   Submits are rate-limited per user (429 with `retryAfterSec`).
 - `POST /api/submits/sample-run` uses the same body with `sampleOnly` forced. It does not
@@ -125,11 +140,14 @@ route for it yet** (tracked as B4); registration does not accept it.
   only (`unfrozenView` / `_unfrozenView` in tests).
 - `GET /api/contests/:id/ranking.csv` returns rank, contestant, per-problem cells and total.
 - `GET /api/contests/:id/rankings/live` streams the same rows over SSE every 15 s and
-  re-checks board visibility on every tick.
+  re-checks membership and board visibility on every tick. Because `EventSource` and
+  plain download links cannot send an `Authorization` header, GET reads also accept
+  `?token=<jwt>`; mutations still require the header.
 - `settings.board.mode === "hidden"` returns 403 `BOARD_HIDDEN` to non-managers on
   ranking, CSV and live. `me-only` filters ranking/CSV/live rows to the caller;
   `/api/submits` returns 403 `BOARD_ME_ONLY` for anonymous callers and only the caller's
-  rows otherwise.
+  rows otherwise. Non-members of a `members`/`hidden` contest always get 403 `NOT_MEMBER`
+  first.
 
 ## Grades
 

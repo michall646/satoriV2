@@ -1,5 +1,7 @@
 // Primitives barrel.
 export { default as Button } from './Button';
+export { default as Icon } from './Icon';
+export { default as Notice } from './Notice';
 export { Input, Select, Textarea } from './Input';
 export { Badge, VerdictPill, Card } from './Badge';
 export { default as VerdictCell, VERDICT_TONE, VERDICT_ICON, verdictTone } from './VerdictCell';

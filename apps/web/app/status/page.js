@@ -2,7 +2,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { API, STR, getLang } from '../../lib/client';
-import { Badge, Card, Skeleton } from '../../components/ui';
+import { Badge, Card, Icon, Notice, Skeleton } from '../../components/ui';
 import { Countdown } from '../../components/ui/Code';
 
 const COPY = {
@@ -68,7 +68,7 @@ export default function StatusPage() {
   return (
     <div>
       <h1 className="type-h1">{copy.title}</h1>
-      {s.maintenance ? <Card className="mt-2" style={{ borderColor: 'var(--tle-line)', background: 'var(--tle-soft)', color: 'var(--tle-text)' }}><strong>{t.status_maintenance}</strong> {s.maintenance}</Card> : null}
+      {s.maintenance ? <Notice tone="warn" icon={<Icon name="alert" size={16} />} title={t.status_maintenance} className="mt-2">{s.maintenance}</Notice> : null}
       <Card className="mt-2 text-sm">
         <p>
           <strong>{t.status_queue}:</strong> {queue}

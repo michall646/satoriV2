@@ -1,6 +1,7 @@
 // Input / Select / Textarea — label + hint + error slots.
 // Error state = text + icon (never color-only), red border, wired aria-describedby.
 'use client';
+import Icon from './Icon';
 
 const FIELD_CLASS = 'rounded px-3 py-2 w-full text-sm focus-ring transition';
 
@@ -20,7 +21,7 @@ function shell(label, hint, error, children, hintId, errId) {
       {hint && !error ? <span id={hintId} className="block text-xs mt-1" style={{ color: 'var(--muted)' }}>{hint}</span> : null}
       {error ? (
         <span id={errId} role="alert" className="block text-xs mt-1" style={{ color: 'var(--wa-text)' }}>
-          <span aria-hidden="true">⚠ </span>{error}
+          <span aria-hidden="true" className="inline-flex align-[-2px] mr-1"><Icon name="alert" size={12} /></span>{error}
         </span>
       ) : null}
     </label>

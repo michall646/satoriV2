@@ -25,7 +25,7 @@ function loadDraft() {
 function blankForm() {
   return {
     goal: 'course', name: '', description: '', mode: 'LABS', scoreboardMode: 'course',
-    registration: 'open', autoApproveRegex: '', startAt: '', stopAt: '', freezeAt: '', defaultDeadline: '',
+    visibility: 'members', registration: 'open', autoApproveRegex: '', startAt: '', stopAt: '', freezeAt: '', defaultDeadline: '',
     penalty: 0, duplicateFrom: '',
     scoring: { ...TEMPLATE_SETTINGS.LABS.scoring },
     judging: { ...TEMPLATE_SETTINGS.LABS.judging },
@@ -42,6 +42,7 @@ export default function ContestWizard() {
   const [form, setForm] = useState(() => {
     const d = loadDraft();
     if (d && !d.goal) d.goal = goalForMode(d.mode);
+    if (d && !['public', 'members', 'hidden'].includes(d.visibility)) d.visibility = 'members';
     return d || blankForm();
   });
   const [csv, setCsv] = useState('');
@@ -100,6 +101,7 @@ export default function ContestWizard() {
       }
       const body = {
         name: form.name.trim(), description: form.description, mode: form.mode,
+        visibility: form.visibility || 'members',
         scoreboardMode: form.scoreboardMode, registration: form.registration,
         autoApproveRegex: form.autoApproveRegex || undefined,
         startAt: form.startAt || undefined, stopAt: form.stopAt || undefined,
@@ -276,6 +278,11 @@ export default function ContestWizard() {
       {step === 4 ? (
         <div className="mt-3 max-w-2xl">
           <Section title={t.wiz_who_join}>
+            <FSelect infoKey="contestVisibility" label={t.mset_visibility} value={form.visibility || 'members'} onChange={(e) => setForm({ ...form, visibility: e.target.value })}>
+              <option value="members">{t.mset_vis_members}</option>
+              <option value="public">{t.mset_vis_public}</option>
+              <option value="hidden">{t.mset_vis_hidden}</option>
+            </FSelect>
             <FSelect infoKey="registration" label={t.wiz_joining} value={form.registration} onChange={(e) => setForm({ ...form, registration: e.target.value })}>
               <option value="open">{t.wiz_reg_anyone}</option><option value="approval">{t.wiz_reg_approve}</option><option value="invite">{t.wiz_reg_invite}</option>
             </FSelect>

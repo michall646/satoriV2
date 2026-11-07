@@ -76,15 +76,19 @@ test('public manifest is valid and installable', () => {
   assert.ok(manifest.icons.some((icon) => /maskable/.test(icon.purpose || '')), 'a maskable icon is required');
 });
 
-test('every manifest icon exists and is an SVG (no fake PNG)', () => {
+test('every manifest icon exists and has valid image bytes (SVG or generated PNG)', () => {
   const manifest = JSON.parse(read(PUBLIC, 'manifest.json'));
   for (const icon of manifest.icons) {
     assert.ok(icon.src.startsWith('/'), `icon src must be root-relative: ${icon.src}`);
-    assert.equal(icon.type, 'image/svg+xml');
-    assert.ok(!icon.src.endsWith('.png'), `do not reference an ungenerated PNG: ${icon.src}`);
     const file = path.join(PUBLIC, icon.src.slice(1));
     assert.ok(fs.existsSync(file), `missing icon file ${icon.src}`);
-    assert.match(fs.readFileSync(file, 'utf8'), /<svg[\s>]/, `${icon.src} is not SVG`);
+    const buf = fs.readFileSync(file);
+    assert.ok(buf.length > 0, `icon file is empty: ${icon.src}`);
+    if (icon.type === 'image/svg+xml') {
+      assert.match(buf.toString('utf8'), /<svg[\s>]/, `${icon.src} is not SVG`);
+    } else if (icon.type === 'image/png') {
+      assert.equal(buf.subarray(0, 4).toString('hex'), '89504e47', `${icon.src} is not a valid PNG`);
+    }
   }
 });
 

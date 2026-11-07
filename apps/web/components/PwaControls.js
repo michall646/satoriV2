@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { flushOutbox, pendingCount } from '../lib/outbox';
 import { api, STR, getLang } from '../lib/client';
+import { Icon } from './ui';
 
 // Registers /sw.js at site scope. Updates are activated explicitly and the page
 // reloads once, after `controllerchange`, never on the first install.
@@ -180,10 +181,11 @@ export function OfflineIndicator() {
   if (notice) parts.push(notice);
 
   if (!parts.length) {
-    return <span aria-hidden="true" className="text-xs border px-2 py-0.5 rounded invisible select-none"> </span>;
+    return <span aria-hidden="true" className="text-xs border px-2 py-0.5 rounded-full invisible select-none"> </span>;
   }
   return (
-    <span role="status" aria-busy={flushing} className="text-xs border px-2 py-0.5 rounded" style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }}>
+    <span role="status" aria-busy={flushing} className="inline-flex items-center gap-1.5 text-xs border px-2 py-0.5 rounded-full" style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--muted)' }}>
+      <Icon name="dot" size={8} style={{ color: !online || pending || flushing ? 'var(--tle)' : 'var(--ok)' }} />
       {parts.join(' · ')}
     </span>
   );

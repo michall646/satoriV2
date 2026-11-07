@@ -35,6 +35,7 @@ function main() {
   const playground = store.insert('contests', {
     id: 251519, name: 'Satori Playground', description: 'Open practice — old UZI tasks.',
     mode: 'PLAYGROUND', lifecycle: 'running', registration: 'approval',
+    visibility: 'public',
     archived: false, startAt: '2011-10-01T00:00:00Z', endAt: null, freezeAt: null,
     settings: { penaltyMin: 20, verdictVisibility: 'all', allowSampleRun: true },
     members: [student.id], pending: [], admins: [teacher.id],
@@ -42,6 +43,7 @@ function main() {
   const rust = store.insert('contests', {
     id: 8677128, name: 'Rust, 2023/24', description: 'University course — Labs 1..8.',
     mode: 'LABS', lifecycle: 'running', registration: 'invite',
+    visibility: 'members',
     archived: false, startAt: '2023-10-01T00:00:00Z', endAt: '2024-06-30T23:59:59Z', freezeAt: null,
     settings: { penaltyMin: 0, verdictVisibility: 'all', allowSampleRun: true, bestOfK: 6, latePenaltyPerDay: 5, defaultDeadline: '2024-06-30T23:59:59Z', deadlinePolicy: { enabled: true, lateMode: 'soft', penaltyKind: 'perDay', penaltyValue: 5, graceMin: 60, capZeroAfterDays: 14 } },
     members: [student.id], pending: [], admins: [teacher.id],
@@ -49,6 +51,7 @@ function main() {
   const uzi = store.insert('contests', {
     id: 10193118, name: 'UZI, 25.10.2025', description: 'ICPC-style team contest, 11 problems A-K.',
     mode: 'ICPC', lifecycle: 'finished', registration: 'invite',
+    visibility: 'members',
     archived: false, startAt: '2025-10-25T10:00:00Z', endAt: '2025-10-25T15:00:00Z', freezeAt: '2025-10-25T14:00:00Z',
     settings: { penaltyMin: 20, verdictVisibility: 'first-failed', allowSampleRun: false },
     members: [], pending: [], admins: [teacher.id],

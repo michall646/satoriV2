@@ -316,7 +316,8 @@ test('A2/A3: clarification membership + whitelist, jury answer, news/subpage own
   const mineRow = mine.body.items.find((x) => x.id === clarId);
   assert.equal(mineRow.mine, true);
   const notMine = await h.api(`/api/contests/${priv.id}/clarifications`, {}, otherTok);
-  assert.equal(notMine.body.items.find((x) => x.id === clarId).mine, false);
+  assert.equal(notMine.status, 403, 'non-members cannot read clarifications of a members-only contest');
+  assert.equal(notMine.body.error.code, 'NOT_MEMBER');
 
   const answerDenied = await h.api(`/api/contests/${priv.id}/clarifications/${clarId}/answer`, { method: 'POST', ...json({ answer: 'no' }) }, studentTok);
   assert.equal(answerDenied.status, 403);
@@ -346,7 +347,7 @@ test('A2/A3: clarification membership + whitelist, jury answer, news/subpage own
   assert.equal(subpage.body.authorId, teacherId);
   assert.ok(!('evil' in subpage.body));
 
-  const oldNewsPath = await h.api(`/api/contests/${priv.id}/news`);
+  const oldNewsPath = await h.api(`/api/contests/${priv.id}/news`, {}, studentTok);
   assert.equal(oldNewsPath.status, 200);
   assert.ok(oldNewsPath.body.items.some((x) => x.id === news.body.id));
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, API, STR, getLang } from '../../../../../lib/client';
+import { api, API, STR, getLang, withAuth } from '../../../../../lib/client';
 import { Badge, Button, CopyButton, EmptyState, Markdown, Select, Skeleton, Tabs, VerdictPill } from '../../../../../components/ui';
 import EyebrowFx from '../../../../../components/EyebrowFx';
 import { toast } from '../../../../../components/ui/Toast';
@@ -36,6 +36,16 @@ const E2_TXT = {
     loginToSave: 'Obserwacja zostaje na tym urządzeniu. Zaloguj się, aby zapisać ją w koncie.',
   },
 };
+
+// Deadline status copy: hard blocks late work, soft applies the configured penalty.
+function deadlineText(policy, overdue, t) {
+  if (!policy) return '';
+  if (policy.lateMode === 'hard') return overdue ? t.prob_dl_closed : t.prob_dl_hard;
+  if (overdue) return t.prob_dl_late_penalty;
+  const unit = policy.penaltyKind === 'perHour' ? 'h' : 'd';
+  const value = t.prob_dl_soft.replace('{v}', String(policy.penaltyValue)).replace('{unit}', unit);
+  return policy.graceMin ? `${value}${t.prob_dl_grace.replace('{n}', String(policy.graceMin))}` : value;
+}
 
 // Render `$…$` as inline code without a math library. Fenced code blocks stay untouched.
 function mathAsCode(md) {
@@ -135,6 +145,7 @@ export default function ProblemPage({ params }) {
   const policy = p.deadlinePolicy || null;
   const deadlineOn = Boolean(policy && policy.enabled && deadlineAt);
   const overdue = deadlineOn ? new Date(deadlineAt).getTime() < Date.now() : false;
+  const statusText = deadlineText(policy, overdue, t);
 
   const samplesContent = (
     <div className="py-4">
@@ -193,11 +204,15 @@ export default function ProblemPage({ params }) {
       </div>
 
       {deadlineOn ? (
-        <div className="mt-4 border rounded-xl px-3 py-2 text-sm flex gap-2 items-center flex-wrap" role="status" style={overdue ? { borderColor: 'var(--danger)', background: 'color-mix(in srgb, var(--danger) 8%, transparent)' } : { borderColor: 'var(--border)' }}>
-          <span aria-hidden="true">{overdue ? '⏰' : '🗓️'}</span>
-          <span><strong>{t.prob_due}</strong> <span title={new Date(deadlineAt).toString()}>{new Date(deadlineAt).toLocaleString()}</span> ({p.deadlineSource || 'problem'})</span>
-          {policy.lateMode === 'hard' ? <Badge>{overdue ? t.prob_dl_closed : t.prob_dl_hard}</Badge> : <Badge>{overdue ? t.prob_dl_late_penalty : `${t.prob_dl_soft.replace('{v}', String(policy.penaltyValue)).replace('{unit}', policy.penaltyKind === 'perHour' ? 'h' : 'd')}${policy.graceMin ? t.prob_dl_grace.replace('{n}', String(policy.graceMin)) : ''}`}</Badge>}
-          <a className="underline text-xs" href={`${API}/api/contests/${p.contestId}/grade.ics`}>ICS</a>
+        <div className="mt-6 py-2.5 border-y flex items-center gap-x-3 gap-y-1.5 flex-wrap text-[13px]" role="status" style={{ borderColor: 'var(--border)' }}>
+          <span className="eyebrow">{t.prob_due}</span>
+          <span className="type-mono tabular-nums" title={new Date(deadlineAt).toString()}>{new Date(deadlineAt).toLocaleString()}</span>
+          <span className="text-xs flex items-center gap-2 flex-wrap" style={{ color: 'var(--muted)' }}>
+            <span className="type-mono">{p.deadlineSource || 'problem'}</span>
+            <span aria-hidden="true">·</span>
+            <span style={{ color: overdue ? 'var(--fg)' : 'var(--muted)', fontWeight: overdue ? 500 : 400 }}>{statusText}</span>
+          </span>
+          <a className="ml-auto type-mono text-[11px] uppercase tracking-[0.08em] underline underline-offset-2 focus-ring rounded" style={{ color: 'var(--muted)' }} href={withAuth(`${API}/api/contests/${p.contestId}/grade.ics`)}>ICS</a>
         </div>
       ) : null}
 

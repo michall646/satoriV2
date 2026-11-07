@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { api, API, STR, getLang } from '../lib/client';
+import { api, API, STR, getLang, withAuth } from '../lib/client';
 import { Countdown } from './ui/Code';
 
 function pickNext(items) {
@@ -78,24 +78,24 @@ export default function ContestTimer() {
   const ms = next.when - Date.now();
   const urgent = !next.overdue && ms < 86400000;
   const tone = next.overdue
-    ? { bg: 'var(--wa-soft)', line: 'var(--wa-line)', text: 'var(--wa-text)' }
+    ? 'var(--wa-text)'
     : urgent
-      ? { bg: 'var(--tle-soft)', line: 'var(--tle-line)', text: 'var(--tle-text)' }
-      : { bg: 'var(--accent-soft)', line: 'var(--accent-line)', text: 'var(--accent-text)' };
+      ? 'var(--tle-text)'
+      : 'var(--accent-text)';
 
   return (
     <div
       className="top-timer hidden lg:flex"
       role="status"
       title={new Date(next.when).toString()}
-      style={{ background: tone.bg, borderColor: tone.line, color: tone.text }}
+      style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: tone }}
     >
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
       <Link href={next.href} prefetch className="top-timer-link focus-ring">
         {next.label}
       </Link>
       {next.overdue ? <span>{t.timer_overdue}</span> : <Countdown to={new Date(next.when).toISOString()} label={t.timer_left} />}
-      <a href={`${API}/api/contests/${contestId}/grade.ics`} className="top-timer-ics focus-ring" aria-label={t.timer_ics_aria}>ICS</a>
+      <a href={withAuth(`${API}/api/contests/${contestId}/grade.ics`)} className="top-timer-ics focus-ring" aria-label={t.timer_ics_aria}>ICS</a>
     </div>
   );
 }

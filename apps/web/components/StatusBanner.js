@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { API } from '../lib/client';
+import { Icon, Notice } from './ui';
 
 export default function StatusBanner() {
   const [st, setSt] = useState(null);
@@ -23,8 +24,15 @@ export default function StatusBanner() {
   if ((st.queue || 0) === 0) return null;
   const worker = st.workers?.[0] || st.worker || 'worker';
   return (
-    <div aria-live="polite" className="text-xs border px-2 py-1 rounded" style={{ background: 'var(--tle-soft)', borderColor: 'var(--tle-line)', color: 'var(--tle-text)' }}>
-      Judge queue: {st.queue}, ETA ~{st.etaSec ?? '?'}s · {worker} · <Link href="/status" prefetch className="underline focus-ring rounded">details</Link>
-    </div>
+    <Notice
+      role="status"
+      icon={<Icon name="clock" size={14} />}
+      dense
+      className="!px-3 !py-1.5"
+    >
+      <span aria-live="polite">
+        Judge queue: <strong style={{ color: 'var(--fg)' }}>{st.queue}</strong>, ETA ~{st.etaSec ?? '?'}s · {worker} · <Link href="/status" prefetch className="underline focus-ring rounded">details</Link>
+      </span>
+    </Notice>
   );
 }

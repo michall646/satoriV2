@@ -132,6 +132,8 @@ export default function ContestsPage() {
                         <div className="flex gap-1.5 flex-wrap mt-2">
                           {c.mode ? <Badge>{c.mode}</Badge> : null}
                           {c.lifecycle ? <Badge tone={c.lifecycle === 'running' ? 'accent' : 'neutral'}>{t[`manage_lc_${c.lifecycle}`] || c.lifecycle}</Badge> : null}
+                          {c.visibility === 'members' ? <Badge>{t.contests_members_only}</Badge> : null}
+                          {c.visibility === 'public' ? <Badge tone="accent">{t.contests_public}</Badge> : null}
                           {c.memberCount != null ? <Badge>{`${c.memberCount} ${t.contests_members}`}</Badge> : null}
                         </div>
                       </div>
@@ -139,6 +141,7 @@ export default function ContestsPage() {
                         {state === 'joined' || state === 'member' ? <Badge tone="accent">{t.contests_joined_state}</Badge>
                           : state === 'pending' ? <Badge tone="warn">{t.contests_pending_state}</Badge>
                           : state === 'managed' ? <Badge tone="accent">{t.manage_title}</Badge>
+                          : c.registration === 'invite' ? <Badge>{t.contests_invite_only}</Badge>
                           : <Button variant="secondary" onClick={() => apply(c)} disabled={applying === c.id} className="!py-1.5">{applying === c.id ? t.contests_applying : t.contests_apply}</Button>}
                       </div>
                     </div>

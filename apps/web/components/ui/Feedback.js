@@ -2,6 +2,7 @@
 // HoverCard: styled hover/focus card (replaces native title tooltips). Tokens only, no deps.
 'use client';
 import { useId, useState } from 'react';
+import Icon from './Icon';
 import { STR, getLang } from '../../lib/client';
 
 export function Skeleton({ lines = 3, className = '' }) {
@@ -30,7 +31,7 @@ export function ErrorState({ title, line, digest, action }) {
   const t = STR[getLang()];
   return (
     <div role="alert" className="card p-6 text-center text-sm" style={{ borderColor: 'var(--wa-line)' }}>
-      <div aria-hidden="true" style={{ color: 'var(--wa-text)', fontSize: 20 }}>⚠</div>
+      <div aria-hidden="true" style={{ color: 'var(--wa-text)' }}><Icon name="alert" size={20} /></div>
       <p className="mt-2 font-semibold">{title || t.ui_something_wrong}</p>
       {line ? <p className="mt-1" style={{ color: 'var(--muted)' }}>{line}</p> : null}
       {digest ? <p className="mt-1 type-mono" style={{ color: 'var(--muted)' }}>{t.ui_report_id} {String(digest)}</p> : null}
@@ -102,7 +103,7 @@ export function HoverCard({ text }) {
         className="underline decoration-dotted cursor-help ml-1 text-muted"
         style={{ fontSize: 12 }}
       >
-        ⓘ
+        <Icon name="info" size={13} className="inline align-[-2px]" />
       </span>
       <CardPop id={id} text={text} open={open} />
     </span>

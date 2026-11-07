@@ -56,7 +56,7 @@ before(async () => {
   studentId = (await api('/api/me', {}, studentTok)).body.id;
   teacherId = (await api('/api/me', {}, teacherTok)).body.id;
   playgroundProblemId = (await api(`/api/contests/${playgroundId}/problems`)).body.items[0].id;
-  uziProblemId = (await api('/api/contests/10193118/problems')).body.items[0].id;
+  uziProblemId = (await api('/api/contests/10193118/problems', {}, teacherTok)).body.items[0].id;
 });
 
 after(async () => {
@@ -181,7 +181,7 @@ test('sample-run judges samples only; no full per-test; no notification', async 
 });
 
 test('sample-run disabled by contest setting (negative)', async () => {
-  const r = await api('/api/submits/sample-run', { method: 'POST', ...json({ problemId: uziProblemId, filename: 'solution.cpp', code: 'int main(){}' }) }, studentTok);
+  const r = await api('/api/submits/sample-run', { method: 'POST', ...json({ problemId: uziProblemId, filename: 'solution.cpp', code: 'int main(){}' }) }, teacherTok);
   assert.equal(r.status, 409);
   assert.equal(r.body.error.code, 'SAMPLE_OFF');
 });

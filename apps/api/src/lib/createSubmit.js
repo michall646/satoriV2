@@ -4,7 +4,7 @@ const { store } = require('./store');
 const { validateFilename, sanitizeFilename, detectLanguage } = require('./validators');
 const J = require('../../../../packages/judge/src/judge');
 const { send, readBody, submitRate, throttleResponse, clientIp } = require('./http');
-const { needAuth, canManageProblem, teamHasMember, audit, contestVisibility, isContestMember } = require('./authz');
+const { needAuth, canManageProblem, teamHasMember, audit, canReadContest } = require('./authz');
 const { contestDeadlines, normalizeExam } = require('./contestAccess');
 const { resolveContestEnd } = require('./contestTime');
 const { defaultDeadlinePolicy, isLateAt, lateUnitsBetween } = require('./ranking');
@@ -95,8 +95,8 @@ async function createSubmit(req, res, preset) {
   if (!J.LANGUAGES.includes(lang)) return send(res, 422, { error: { code: 'LANG_OFF', message: `${lang} submissions are retired in V2.`, hint: 'Use C, C++17, Python, Java, Rust or JavaScript.' } });
   if (contest && contest.lifecycle === 'archived') return send(res, 409, { error: { code: 'ARCHIVED', message: 'Contest archived.', hint: 'Upsolve in Playground.' } });
   const manage = canManageProblem(me, pr);
-  // A8: private/exam contests require membership even for reading the problem.
-  if (contest && !manage && contestVisibility(contest) !== 'public' && !isContestMember(contest, me.id)) {
+  // A8/D4: non-public contests require membership to read and submit.
+  if (contest && !manage && !canReadContest(contest, me)) {
     return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
   }
   // F3: exam mode is enforced server-side, not only by the browser guard.

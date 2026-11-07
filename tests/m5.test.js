@@ -208,17 +208,17 @@ test('contract: ranking me row, canonical penaltyMin, unfreezeAt, hidden board g
 
   const cRow = store.get('contests', cid);
   store.update('contests', cid, { settings: { ...(cRow.settings || {}), penaltyMin: 7, scoring: { wrongTryMin: 99 } } });
-  const rank2 = await api(`/api/contests/${cid}/ranking`);
+  const rank2 = await api(`/api/contests/${cid}/ranking`, {}, teacherTok);
   assert.equal(rank2.body.penaltyMin, 7, 'settings.penaltyMin is canonical');
-  assert.equal(rank2.body.me, null, 'anon gets no me row');
+  assert.equal(rank2.body.me, null, 'admin gets no me row');
 
   const endAt = new Date(Date.now() + 3600000).toISOString();
   store.update('contests', cid, { freezeAt: new Date().toISOString(), endAt });
-  const rank3 = await api(`/api/contests/${cid}/ranking`);
+  const rank3 = await api(`/api/contests/${cid}/ranking`, {}, teacherTok);
   assert.equal(rank3.body.unfreezeAt, endAt, 'unfreezeAt = contest end while frozen');
 
   store.update('contests', cid, { settings: { ...store.get('contests', cid).settings, board: { mode: 'hidden' } } });
-  const blocked = await api(`/api/contests/${cid}/ranking`);
+  const blocked = await api(`/api/contests/${cid}/ranking`, {}, janTok);
   assert.equal(blocked.status, 403);
   assert.equal(blocked.body.error.code, 'BOARD_HIDDEN', 'public board hidden');
   const memberBlocked = await api(`/api/contests/${cid}/ranking`, {}, janTok);
@@ -234,6 +234,7 @@ test('contract: teammate sees the team submission with member list (S3-1)', asyn
   assert.equal(reg.status, 201, JSON.stringify(reg.body));
   const mateTok = await loginAs('m5mate', 'secret12');
   const mateId = (await api('/api/me', {}, mateTok)).body.id;
+  await addMember(cid, 'm5mate');
   const { store } = require('../apps/api/src/lib/store');
   const team = store.insert('teams', { contestId: cid, scoreboardName: 'M5', members: [janId, mateId] });
   const ts = store.insert('submits', { contestId: cid, problemId: pid, userId: janId, teamId: team.id, code: 'int main(){}', status: 'OK', filename: 't.cpp', lang: 'C++17', createdAt: new Date().toISOString(), sampleOnly: false, perTest: [], points: 100 });

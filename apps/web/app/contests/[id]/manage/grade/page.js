@@ -3,7 +3,7 @@
 // release control, bulk rejudge and code export.
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { api, API, STR, getLang } from '../../../../../lib/client';
+import { api, API, STR, getLang, withAuth } from '../../../../../lib/client';
 import { Badge, Button, EmptyState, Input, Select, Skeleton, Table, Textarea } from '../../../../../components/ui';
 import { toast } from '../../../../../components/ui/Toast';
 import { PageHeader, PageSection, StatRow, Stat } from '../../../../../components/manage';
@@ -623,7 +623,7 @@ export default function ManageGradePage({ params }) {
           <div className="flex gap-2 mt-3 flex-wrap items-center">
             <Button variant="secondary" onClick={bulkFeedback}>{t.grade_post_feedback}</Button>
             <Button variant="secondary" onClick={usosCsv}>{t.grade_export_csv}</Button>
-            <a className="text-sm underline focus-ring rounded self-center" href={`${API}/api/contests/${params.id}/grade.ics`}>{t.manage_ics}</a>
+            <a className="text-sm underline focus-ring rounded self-center" href={withAuth(`${API}/api/contests/${params.id}/grade.ics`)}>{t.manage_ics}</a>
           </div>
 
           <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>

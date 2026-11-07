@@ -40,6 +40,7 @@ before(async () => {
   const c = await h.createContest(teacherTok, {
     name: contestName,
     mode: 'ICPC',
+    visibility: 'public',
     startAt: '2020-01-01T00:00:00Z',
     endAt: '2030-01-01T00:00:00Z',
     registration: 'open',

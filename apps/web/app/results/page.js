@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, API, STR, getLang } from '../../lib/client';
-import { Badge, Button, CodeBlock, DiffView, EmptyState, Input, Select, Skeleton, Table, Tabs, VerdictCell } from '../../components/ui';
+import { Badge, Button, CodeBlock, DiffView, EmptyState, Icon, Input, Select, Skeleton, Table, Tabs, VerdictCell } from '../../components/ui';
 import { toast } from '../../components/ui/Toast';
 
 const VERDICTS = ['', 'OK', 'ANS', 'WA', 'TLE', 'MLE', 'RE', 'CE', 'QUE', 'CMP', 'TST'];
@@ -244,7 +244,7 @@ export default function ResultsPage({ searchParams }) {
             <Input label={t.col_team} placeholder="ID" value={f.team} onChange={(e) => setF({ ...f, team: e.target.value })} className="!w-28" />
           </div>
         </details>
-        {items?.length ? <Button variant="ghost" onClick={downloadZip} title={t.results_zip_title}>⭳ ZIP</Button> : null}
+        {items?.length ? <Button variant="ghost" onClick={downloadZip} title={t.results_zip_title}><Icon name="download" size={14} />ZIP</Button> : null}
       </form>
       {error ? <EmptyState line={error} action={<Button variant="secondary" onClick={() => load(0)}>{t.common_retry}</Button>} /> : null}
       {!error && !rows.length ? <EmptyState line={t.res_empty} /> : null}

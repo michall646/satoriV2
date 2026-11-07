@@ -5,6 +5,7 @@ const { send, sendText, readBody } = require('../lib/http');
 const {
   authUser, needAuth, forbid, audit, contestRole, memberRole, canManageContest,
   sharesTeam, boardModeOf, isMyContestantRow, isTeacherRow, teacherIds, canReadContest,
+  canListContest, contestVisibility, normalizeContestVisibility,
   isContestMember, teamHasMember,
 } = require('../lib/authz');
 const { contestDeadlines, enrichProblemWithDeadline, computeLabsGrade, buildRanking, csvCell, icsText, normalizeExam } = require('../lib/contestAccess');
@@ -14,6 +15,16 @@ const { releaseState, computeRowGrade } = require('./grades');
 const comms = require('./comms');
 
 const LIVE_INTERVAL_MS = Number(process.env.SATORI_LIVE_INTERVAL_MS || 15000);
+const LIFECYCLES = ['draft', 'registration', 'running', 'finished', 'archived'];
+
+// Lifecycle moves in both directions. The `archived` flag follows the stage so
+// archived contests disappear from lists and reappear when restored.
+function normalizeLifecycle(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, 'lifecycle')) return body;
+  const lifecycle = String(body.lifecycle == null ? '' : body.lifecycle).trim();
+  if (!LIFECYCLES.includes(lifecycle)) return null;
+  return { ...body, lifecycle, archived: lifecycle === 'archived' };
+}
 
 // A11: public contests never expose member/admin IDs or exam IP/time settings.
 function publicContestView(c) {
@@ -22,16 +33,23 @@ function publicContestView(c) {
   delete safeSettings.exam;
   delete safeSettings.ips;
   delete safeSettings.tokens;
-  return { ...rest, settings: safeSettings, memberCount: (members || []).length };
+  return { ...rest, visibility: contestVisibility(c), settings: safeSettings, memberCount: (members || []).length };
 }
 function contestView(c, me) {
   const base = canManageContest(me, c) ? c : publicContestView(c);
-  if (!me) return { ...base, membership: 'other' };
-  const role = contestRole(c, me.id);
-  const membership = role === 'contest_admin' || role === 'superadmin'
-    ? 'managed'
-    : role === 'participant' ? 'joined' : role === 'pending' ? 'pending' : 'other';
-  return { ...base, membership };
+  const access = canReadContest(c, me) ? 'open' : 'locked';
+  const role = me ? contestRole(c, me.id) : 'none';
+  const membership = !me
+    ? 'other'
+    : role === 'contest_admin' || role === 'superadmin' ? 'managed'
+      : role === 'participant' ? 'joined' : role === 'pending' ? 'pending' : 'other';
+  // A locked contest exposes only the card: name, description, registration and
+  // lifecycle. Scoring, board and deadline settings stay behind membership.
+  if (access === 'locked') {
+    const { settings, ...rest } = base;
+    return { ...rest, visibility: contestVisibility(c), access, membership };
+  }
+  return { ...base, visibility: contestVisibility(c), access, membership };
 }
 // A10/A12: hide rows the board mode forbids and never rank teachers.
 function filterBoard(c, me, body) {
@@ -387,6 +405,8 @@ async function handle(req, res, url, p, m) {
     const q = (u.searchParams.get('q') || '').toLowerCase();
     let items = store.all('contests');
     if (!showArchived) items = items.filter((c) => !c.archived);
+    // D4: hidden contests are invisible to everyone outside the member/admin set.
+    items = items.filter((c) => canListContest(c, me));
     const has = (arr, id) => (arr || []).map(String).includes(String(id));
     // B10: drafts are only visible to their admins/members/pending users.
     items = items.filter((c) => c.lifecycle !== 'draft'
@@ -403,10 +423,18 @@ async function handle(req, res, url, p, m) {
     if (!me) return true;
     const b = await readBody(req);
     if (!b.name) return send(res, 422, { error: { code: 'NAME', message: 'Name required.', hint: 'e.g. UZI, 2026.' } });
+    // D4: new contests are members-only unless the creator opens them explicitly.
+    const visibility = b.visibility == null ? 'members' : normalizeContestVisibility(b.visibility);
+    if (!visibility) {
+      return send(res, 422, {
+        error: { code: 'INVALID_VISIBILITY', message: 'Visibility must be public, members or hidden.', hint: 'Omit the field for members-only.' },
+      });
+    }
     const time = normalizeContestTime(b);
     const c = store.insert('contests', {
       name: b.name, description: b.description || '', mode: b.mode || 'ICPC',
       lifecycle: 'draft', registration: b.registration || 'approval', archived: false,
+      visibility,
       startAt: time.startAt || null, endAt: time.endAt || null, freezeAt: time.freezeAt || null,
       scoreboardMode: b.scoreboardMode || null, teamMode: Boolean(b.teamMode),
       settings: b.settings || { penaltyMin: 20, verdictVisibility: 'all', allowSampleRun: true, deadlinePolicy: { enabled: false, lateMode: 'soft', penaltyKind: 'perDay', penaltyValue: 5, graceMin: 0 } },
@@ -427,6 +455,10 @@ async function handle(req, res, url, p, m) {
       const me = needAuth(req, res);
       if (!me) return true;
       if ((c.members || []).map(String).includes(String(me.id))) return send(res, 200, { ok: true, state: 'joined' });
+      // Invite-only contests are joined by the jury, never by self-service.
+      if (c.registration === 'invite') {
+        return send(res, 403, { error: { code: 'INVITE_ONLY', message: 'This contest is invite-only.', hint: 'Ask a contest admin to add you.' } });
+      }
       if (c.registration === 'open') {
         c.members.push(me.id);
         store.update('contests', c.id, { members: c.members });
@@ -655,6 +687,7 @@ async function handle(req, res, url, p, m) {
     }
     if (act === 'rankings/live' && m === 'GET') {
       const me = authUser(req);
+      if (!canReadContest(c, me)) return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
       if (boardModeOf(c) === 'hidden' && !canManageContest(me, c)) {
         return send(res, 403, { error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.', hint: 'It becomes visible after the contest.' } });
       }
@@ -664,6 +697,12 @@ async function handle(req, res, url, p, m) {
         try {
           // Re-read on every tick: a mid-stream hide/me-only change must apply.
           const cur = store.get('contests', c.id) || c;
+          if (!canReadContest(cur, me)) {
+            res.write(`data: ${JSON.stringify({ error: { code: 'NOT_MEMBER', message: 'Contest membership required.' } })}\n\n`);
+            res.end();
+            clearInterval(iv);
+            return;
+          }
           if (boardModeOf(cur) === 'hidden' && !canManageContest(me, cur)) {
             res.write(`data: ${JSON.stringify({ error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.' } })}\n\n`);
             res.end();
@@ -684,6 +723,7 @@ async function handle(req, res, url, p, m) {
     }
     if ((act === 'ranking' || act === 'ranking.csv') && m === 'GET') {
       const me = authUser(req);
+      if (!canReadContest(c, me)) return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
       if (boardModeOf(c) === 'hidden' && !canManageContest(me, c)) {
         return send(res, 403, { error: { code: 'BOARD_HIDDEN', message: 'The scoreboard is hidden during this contest.', hint: 'It becomes visible after the contest.' } });
       }
@@ -710,6 +750,7 @@ async function handle(req, res, url, p, m) {
     if (act === 'grade' && m === 'GET') {
       const me = needAuth(req, res);
       if (!me) return true;
+      if (!canReadContest(c, me)) return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
       const uid = u.searchParams.get('user') || me.id;
       if (String(uid) !== String(me.id) && !canManageContest(me, c) && !sharesTeam(c, me.id, uid)) return forbid(res);
       if (!canManageContest(me, c) && !releaseState(c).released) {
@@ -721,6 +762,8 @@ async function handle(req, res, url, p, m) {
       return send(res, 200, { ...out, deadlines, deadlinePolicy: policy, submittedAt, scale });
     }
     if (act === 'grade.ics' && m === 'GET') {
+      const me = authUser(req);
+      if (!canReadContest(c, me)) return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
       const dl = contestDeadlines(c);
       const probs = store.query('problems', (x) => String(x.contestId) === String(c.id));
       const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//SatoriV2//grade//EN'];
@@ -816,7 +859,12 @@ async function handle(req, res, url, p, m) {
   if (mt && (m === 'GET' || m === 'PATCH' || m === 'DELETE')) {
     const c = store.get('contests', mt[1]);
     if (!c) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Not found.', hint: '' } });
-    if (m === 'GET') return send(res, 200, contestView(c, authUser(req)));
+    const viewer = authUser(req);
+    if (m === 'GET') {
+      // Hidden contests are indistinguishable from missing ones outside the member set.
+      if (!canListContest(c, viewer)) return send(res, 404, { error: { code: 'NO_CONTEST', message: 'Not found.', hint: '' } });
+      return send(res, 200, contestView(c, viewer));
+    }
     const me = needAuth(req, res);
     if (!me) return true;
     if (m === 'DELETE') {
@@ -845,8 +893,27 @@ async function handle(req, res, url, p, m) {
     const role = contestRole(c, me.id);
     if (!['contest_admin', 'superadmin'].includes(role)) return send(res, 403, { error: { code: 'FORBIDDEN', message: 'Admins only.', hint: '' } });
     const b = await readBody(req);
-    const out = store.update('contests', c.id, normalizeContestTime(b));
-    audit(me.id, 'contest.update', `contest:${c.id}`, b);
+    const patch = normalizeLifecycle(normalizeContestTime(b));
+    if (!patch) {
+      return send(res, 422, {
+        error: {
+          code: 'INVALID_LIFECYCLE',
+          message: `Lifecycle must be one of: ${LIFECYCLES.join(', ')}.`,
+          hint: 'Send a lifecycle value or omit the field.',
+        },
+      });
+    }
+    if (Object.prototype.hasOwnProperty.call(b, 'visibility')) {
+      const visibility = normalizeContestVisibility(b.visibility);
+      if (!visibility) {
+        return send(res, 422, {
+          error: { code: 'INVALID_VISIBILITY', message: 'Visibility must be public, members or hidden.', hint: 'Omit the field to keep the current value.' },
+        });
+      }
+      patch.visibility = visibility;
+    }
+    const out = store.update('contests', c.id, patch);
+    audit(me.id, 'contest.update', `contest:${c.id}`, patch);
     return send(res, 200, out);
   }
   return false;

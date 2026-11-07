@@ -121,7 +121,7 @@
 ## 3. Teacher / jury side (all under `/contests/[id]/manage`, admin-gated; non-admin sees 403 + request-access hint)
 
 ### 3.1 `/manage` dashboard (exists — expand)
-- Contest settings: name/description/mode/template, lifecycle stepper `draft → registration → running → finished → archived` with guards (e.g. can't run without visible problems), registration `open/approval/invite` + auto-approve domain/affiliation regex, schedule start/stop/freeze datetimes, scoreboard mode + penalty.
+- Contest settings: name/description/mode/template, reversible lifecycle stepper `draft ↔ registration ↔ running ↔ finished ↔ archived` with guards (e.g. can't run without visible problems), registration `open/approval/invite` + auto-approve domain/affiliation regex, schedule start/stop/freeze datetimes, scoreboard mode + penalty.
 - Members: pending queue (search, one-click approve/reject, approve-all-by-filter), CSV import (result `added N, unknown: logins`), e-mail templates, roles add (teacher/jury/participant), USOS group sync note.
 - Teams: list, create, invites, substitutes, scoreboard-name vs login-identity mapping.
 - Danger/productivity: duplicate contest (clone `UZI 2025 → 2026`), bulk extend deadline, ranking snapshot export (protocol paper trail), archive.

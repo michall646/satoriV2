@@ -1,7 +1,7 @@
 // B2.1 flagship: cockpit — filters (?f= shareable), sort, fav, keyboard, notes, live SSE.
 'use client';
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, API, FILENAME_RE, suggestFilename, getLang, STR } from '../lib/client';
+import { api, API, FILENAME_RE, suggestFilename, getLang, STR, withAuth } from '../lib/client';
 import { Button, CodeEditor, Drawer, EmptyState, Input, Modal, Segmented, Select, Skeleton, VerdictPill, VERDICT_TONE as VCELL_TONE, VERDICT_ICON } from './ui';
 import { toast } from './ui/Toast';
 
@@ -192,7 +192,7 @@ export default function ProblemCockpit({ contestId }) {
     } catch (e) { toast(`${t.subm_failed} ${e.message}`); return; }
     setModal(null);
     toast(t.subm_queued.replace('{id}', String(s.id)));
-    const es = new EventSource(`${API}/api/submits/${s.id}/events`);
+    const es = new EventSource(withAuth(`${API}/api/submits/${s.id}/events`));
     es.onmessage = (ev) => {
       let d;
       try { d = JSON.parse(ev.data); } catch { return; }

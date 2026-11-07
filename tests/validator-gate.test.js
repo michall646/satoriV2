@@ -28,7 +28,7 @@ const GEN_JS = "process.stdout.write('5 2\\n');";
 
 async function mkProblem(visibility = 'draft') {
   seq += 1;
-  const c = await h.createContest(teacher, { name: `Validator ${seq}`, mode: 'ICPC' });
+  const c = await h.createContest(teacher, { name: `Validator ${seq}`, mode: 'ICPC', visibility: 'public' });
   return h.createProblem(c.id, teacher, { code: 'A', name: `Problem ${seq}`, visibility });
 }
 function patch(pid, body, token = teacher) {

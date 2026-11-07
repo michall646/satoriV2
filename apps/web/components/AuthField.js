@@ -3,6 +3,7 @@
 'use client';
 import { useState } from 'react';
 import EyebrowFx from './EyebrowFx';
+import { Icon } from './ui';
 import { STR, getLang } from '../lib/client';
 
 export default function AuthField({ id, label, hint, error, reveal = false, ...props }) {
@@ -44,7 +45,7 @@ export default function AuthField({ id, label, hint, error, reveal = false, ...p
       {hint && !error ? <span id={hintId} className="auth-hint">{hint}</span> : null}
       {error ? (
         <span id={errId} role="alert" className="auth-error">
-          <span aria-hidden="true">⚠ </span>{error}
+          <span aria-hidden="true" className="inline-flex align-[-2px] mr-1"><Icon name="alert" size={12} /></span>{error}
         </span>
       ) : null}
     </div>

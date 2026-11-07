@@ -10,12 +10,21 @@
  */
 'use strict';
 
-const VERSION = 'satori-v4';
+const VERSION = 'satori-v5';
 const SHELL_CACHE = `${VERSION}-shell`;
 const DATA_CACHE = `${VERSION}-data`;
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
-const SHELL_URLS = ['/', OFFLINE_URL, '/manifest.json', '/icon-192.svg', '/icon-512.svg', '/apple-touch-icon.png'];
+const SHELL_URLS = [
+  '/',
+  OFFLINE_URL,
+  '/manifest.json',
+  '/favicon.ico',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-maskable-512.png',
+  '/apple-touch-icon.png',
+];
 
 // Exact public reads only. Prefix matching would also capture /tests, /submit,
 // /best and other authenticated routes.

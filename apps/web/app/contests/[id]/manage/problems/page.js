@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, STR, getLang } from '../../../../../lib/client';
-import { Badge, Button, EmptyState, Input, Modal, Segmented, Skeleton, Table, Textarea } from '../../../../../components/ui';
+import { Badge, Button, EmptyState, Icon, Input, Modal, Notice, Segmented, Skeleton, Table, Textarea } from '../../../../../components/ui';
 import { toast } from '../../../../../components/ui/Toast';
 import { PageHeader } from '../../../../../components/manage';
 
@@ -108,9 +108,9 @@ export default function ManageProblemsPage({ params }) {
       />
 
       {dupLetters.length ? (
-        <p role="alert" className="text-sm mb-3 px-3 py-2 rounded" style={{ background: 'var(--tle-soft)', color: 'var(--tle-text)', border: '1px solid var(--tle-line)' }}>
-          ⚠ {t.mprob_conflict_1} <strong>{[...new Set(dupLetters)].join(', ')}</strong> {t.mprob_conflict_2}
-        </p>
+        <Notice tone="warn" role="alert" icon={<Icon name="alert" size={16} />} className="mb-3">
+          {t.mprob_conflict_1} <strong style={{ color: 'var(--fg)' }}>{[...new Set(dupLetters)].join(', ')}</strong> {t.mprob_conflict_2}
+        </Notice>
       ) : null}
 
       <div className="flex items-center gap-3 flex-wrap mb-3">

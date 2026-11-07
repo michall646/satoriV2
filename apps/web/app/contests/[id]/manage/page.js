@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, API, STR, getLang } from '../../../../lib/client';
+import { api, API, STR, getLang, withAuth } from '../../../../lib/client';
 import { Button, Skeleton } from '../../../../components/ui';
 import { toast } from '../../../../components/ui/Toast';
 import { PageHeader, PageSection, StatRow, Stat, DangerStrip, ConfirmButton } from '../../../../components/manage';
@@ -22,18 +22,17 @@ function Lifecycle({ contest, onSet, busy }) {
       {STEPS.map((l, i) => {
         const active = i === idx;
         const past = i < idx;
-        const blocked = i < idx;
         return (
           <button
             key={l}
             onClick={() => onSet(l)}
-            disabled={blocked || busy}
+            disabled={busy}
             aria-current={active ? 'step' : undefined}
             className="px-3 py-1.5 text-xs focus-ring rounded-full whitespace-nowrap disabled:opacity-40"
             style={{
               border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-              background: active ? 'var(--accent)' : past ? 'var(--ok-soft)' : 'var(--surface)',
-              color: active ? 'var(--accent-fg)' : past ? 'var(--ok-text)' : 'var(--muted)',
+              background: active ? 'var(--accent)' : past ? 'var(--hover-wash)' : 'var(--surface)',
+              color: active ? 'var(--accent-fg)' : past ? 'var(--fg)' : 'var(--muted)',
               fontWeight: active || past ? 600 : 500,
             }}
           >
@@ -81,8 +80,6 @@ export default function ManageOverviewPage({ params }) {
   async function setLifecycle(lifecycle) {
     if (lifecycle === contest.lifecycle) return;
     if (lifecycle === 'running' && visibleProblems === 0) { toast(t.manage_need_visible, 'warn'); return; }
-    const targetIdx = STEPS.indexOf(lifecycle);
-    if (targetIdx < STEPS.indexOf(contest.lifecycle) && lifecycle !== 'archived') { toast(`${t.manage_no_move_back} ${t[LC_KEY[contest.lifecycle]] || contest.lifecycle}.`, 'warn'); return; }
     setBusy(true);
     try {
       await api(`/api/contests/${params.id}`, { method: 'PATCH', body: JSON.stringify({ lifecycle }) });
@@ -240,7 +237,7 @@ export default function ManageOverviewPage({ params }) {
             ) : (
               <Button variant="secondary" onClick={() => setShowExtend(true)}>{t.manage_bulk_extend}</Button>
             )}
-            <a className="text-xs underline self-center focus-ring rounded" href={`${API}/api/contests/${params.id}/grade.ics`}>{t.manage_ics}</a>
+            <a className="text-xs underline self-center focus-ring rounded" href={withAuth(`${API}/api/contests/${params.id}/grade.ics`)}>{t.manage_ics}</a>
           </div>
         </PageSection>
       </div>

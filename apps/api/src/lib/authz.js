@@ -5,9 +5,18 @@ const { verifyJwt } = require('./crypto');
 const { t } = require('./i18n');
 const { send } = require('./http');
 
-function authUser(req) {
+// EventSource and plain download links cannot send headers, so reads accept the
+// token in the query string. Mutations still require the Authorization header.
+function requestToken(req) {
   const h = req.headers.authorization || '';
-  const p = verifyJwt(h);
+  if (h) return h;
+  if (String((req && req.method) || 'GET').toUpperCase() !== 'GET') return '';
+  try {
+    return new URL(req.url || '', 'http://satori.local').searchParams.get('token') || '';
+  } catch { return ''; }
+}
+function authUser(req) {
+  const p = verifyJwt(requestToken(req));
   if (!p) return null;
   const u = store.get('users', p.sub);
   if (!u) return null;
@@ -16,7 +25,7 @@ function authUser(req) {
   return u;
 }
 function tokenClaims(req) {
-  return verifyJwt(req.headers.authorization || '');
+  return verifyJwt(requestToken(req));
 }
 function audit(actorId, action, target, meta) {
   const actor = actorId != null ? store.get('users', actorId) : null;
@@ -80,22 +89,42 @@ function canManageProblem(me, problem) {
   if (!me || !problem || problem.contestId == null) return false;
   return canManageContest(me, store.get('contests', problem.contestId));
 }
+// D4: contest access is fail-closed. A contest without an explicit visibility is
+// members-only; legacy private/exam values keep their old meaning.
+const CONTEST_VISIBILITIES = ['public', 'members', 'hidden'];
 function contestVisibility(contest) {
-  const v = String((contest && contest.visibility) || '').toLowerCase();
-  if (v === 'private' || v === 'exam') return v;
-  if (String((contest && contest.mode) || '').toUpperCase() === 'EXAM') return 'exam';
-  return 'public';
+  const raw = String((contest && contest.visibility) || '').trim().toLowerCase();
+  // Exam content is never public, even if a legacy record says visibility:public.
+  if (String((contest && contest.mode) || '').toUpperCase() === 'EXAM') return 'members';
+  if (raw === 'public') return 'public';
+  if (raw === 'hidden') return 'hidden';
+  if (raw === 'members' || raw === 'private' || raw === 'exam') return 'members';
+  return 'members';
+}
+function normalizeContestVisibility(value) {
+  const v = String(value == null ? '' : value).trim().toLowerCase();
+  if (v === 'private' || v === 'exam') return 'members';
+  return CONTEST_VISIBILITIES.includes(v) ? v : null;
 }
 function isContestMember(contest, userId) {
   if (!contest || userId == null) return false;
   return hasId(contest.members, userId) || hasId(contest.admins, userId) || Boolean((contest.roles || {})[String(userId)]);
 }
-// A8/D4: private and exam contests are unreadable to non-members, not just unsubmittable.
+// A8/D4: only public contests are readable without membership.
 function canReadContest(contest, me) {
   if (!contest) return true;
   if (contestVisibility(contest) === 'public') return true;
+  return canManageContest(me, contest) || (Boolean(me) && isContestMember(contest, me.id));
+}
+// Hidden contests do not appear in discovery lists; members-only ones do, so the
+// caller can still find the card and request access. A pending applicant of a
+// hidden contest still sees the card and their pending state.
+function canListContest(contest, me) {
+  if (!contest) return false;
+  if (contestVisibility(contest) !== 'hidden') return true;
   if (canManageContest(me, contest)) return true;
-  return Boolean(me) && isContestMember(contest, me.id);
+  if (!me) return false;
+  return isContestMember(contest, me.id) || hasId(contest.pending, me.id);
 }
 function sharesTeam(contest, aId, bId) {
   if (!contest || aId == null || bId == null) return false;
@@ -200,7 +229,7 @@ function submitView(s, me) {
 module.exports = {
   authUser, tokenClaims, audit, contestRole, memberRole, isTeacher, teacherIds,
   needAuth, forbid, canManageContest, canManageProblem, sharesTeam, teamHasMember,
-  contestVisibility, isContestMember, canReadContest,
+  contestVisibility, normalizeContestVisibility, isContestMember, canReadContest, canListContest,
   boardModeOf, isMyContestantRow, isTeacherRow, submitVisibleOnBoard,
   reqLang, localizeRow, submitView,
 };

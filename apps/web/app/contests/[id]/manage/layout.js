@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, STR, getLang } from '../../../../lib/client';
-import { Button, EmptyState, ErrorState, Skeleton } from '../../../../components/ui';
+import { Button, EmptyState, ErrorState, Icon, Skeleton } from '../../../../components/ui';
 import ManageNav from '../../../../components/manage/ManageNav';
 import { ManageContext } from '../../../../components/manage/context';
 
@@ -51,7 +51,7 @@ export default function ManageLayout({ children, params }) {
     return (
       <div className="max-w-xl pt-2">
         <EmptyState
-          icon="🔒"
+          icon={<Icon name="lock" size={28} />}
           line={t.manage_forbidden}
         />
       </div>

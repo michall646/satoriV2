@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, STR, getLang } from '../../lib/client';
 import { clearTokens } from '../../hooks/useApi';
-import { Badge, Button, Card, Select, Skeleton, EmptyState } from '../../components/ui';
+import { Badge, Button, Select, Skeleton, EmptyState, Icon, Notice } from '../../components/ui';
 import { CopyButton } from '../../components/ui/Code';
 import NotificationsInbox from '../../components/NotificationsInbox';
 import EyebrowFx from '../../components/EyebrowFx';
@@ -286,27 +286,27 @@ export default function MePage() {
         </div>
       </header>
 
-      {/* OVERVIEW — one surface, hairline sections */}
+      {/* OVERVIEW — hairline sections */}
       {active === 'overview' ? (
-        <Card className="p-0 overflow-hidden">
-          <div className="grid lg:grid-cols-12">
+        <div className="grid lg:grid-cols-12 lg:gap-x-10">
             <div className="min-w-0 lg:col-span-8 flex flex-col divide-y divide-border">
-              <section className="p-5 md:p-6">
+              <section className="pb-6">
                 <SectionHead label={t.auth_completion} meta={`${complete}/5`} />
                 <p className="text-sm mt-1.5" style={{ color: 'var(--muted)' }}>
                   {complete === 5 ? t.me_all_set : t.me_complete_hint}
                 </p>
                 <Checklist me={me} orgName={orgName} />
                 {!me.affiliationOrgId ? (
-                  <div className="mt-3 rounded px-3 py-2 flex gap-2 items-center text-sm border" style={{ background: '#fffbeb', borderColor: '#fcd34d', color: '#92400e' }}>
-                    <span aria-hidden="true" className="text-base">⚑</span>
-                    <span className="flex-1">{t.me_aff_nudge}</span>
-                    <a href="#affiliation" className="shrink-0 px-2.5 py-1 rounded bg-surface border text-xs font-semibold">{t.me_set_now}</a>
-                  </div>
+                  <Notice tone="info" icon={<Icon name="flag" size={16} />} className="mt-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="flex-1">{t.me_aff_nudge}</span>
+                      <a href="#affiliation" className="btn btn-secondary btn-compact focus-ring">{t.me_set_now}</a>
+                    </div>
+                  </Notice>
                 ) : null}
               </section>
 
-              <section id="affiliation" className="p-5 md:p-6">
+              <section id="affiliation" className="py-6">
                 <SectionHead label={t.me_identity} meta={`#${me.id}`} />
                 <div className="mt-2">
                   <Field label="Login" value={me.login} mono copy />
@@ -325,7 +325,7 @@ export default function MePage() {
                 </div>
               </section>
 
-              <section className="p-5 md:p-6">
+              <section className="py-6">
                 <SectionHead
                   label={t.me_teams_title}
                   meta={me.teams?.length ? String(me.teams.length) : null}
@@ -348,8 +348,8 @@ export default function MePage() {
             </div>
 
             {/* Rail */}
-            <aside className="min-w-0 lg:col-span-4 flex flex-col divide-y divide-border border-t lg:border-t-0 lg:border-l border-border">
-              <section className="p-5 md:p-6">
+            <aside className="min-w-0 lg:col-span-4 flex flex-col divide-y divide-border border-t lg:border-t-0 lg:border-l lg:pl-10 border-border mt-6 lg:mt-0">
+              <section className="py-6 lg:first:pt-0">
                 <SectionHead label={t.me_at_glance} />
                 <div className="mt-3 grid grid-cols-2 gap-4">
                   <div>
@@ -363,7 +363,7 @@ export default function MePage() {
                 </div>
               </section>
 
-              <section className="p-5 md:p-6">
+              <section className="py-6">
                 <SectionHead
                   label={t.me_inbox_preview}
                   action={<Link href="/notifications" className="text-xs underline underline-offset-2 focus-ring rounded">{t.me_open_inbox} →</Link>}
@@ -371,7 +371,7 @@ export default function MePage() {
                 <NotificationsInbox preview />
               </section>
 
-              <section className="p-5 md:p-6">
+              <section className="py-6">
                 <SectionHead label={t.me_security} />
                 <p className="text-sm mt-1.5" style={{ color: 'var(--muted)' }}>{t.me_security_tip_line}</p>
                 <button type="button" onClick={() => setActive('security')} className="mt-2 text-xs font-semibold underline underline-offset-2 focus-ring rounded">
@@ -379,16 +379,15 @@ export default function MePage() {
                 </button>
               </section>
             </aside>
-          </div>
-        </Card>
+        </div>
       ) : null}
 
-      {/* SECURITY — one surface, hairline sections */}
+      {/* SECURITY — hairline sections */}
       {active === 'security' ? (
-        <Card className="p-0 overflow-hidden">
-          <div className="grid lg:grid-cols-12">
+        <>
+        <div className="grid lg:grid-cols-12 lg:gap-x-10">
             <div className="min-w-0 lg:col-span-8 flex flex-col divide-y divide-border">
-              <section className="p-5 md:p-6">
+              <section className="pb-6">
                 <SectionHead label={t.auth_sessions} meta={String(me.sessions?.length || 1)} action={<span className="text-xs" style={{ color: 'var(--muted)' }}>{t.me_current_highlighted}</span>} />
 
                 {!me.sessions?.length ? (
@@ -423,7 +422,7 @@ export default function MePage() {
                 )}
               </section>
 
-              <section className="p-5 md:p-6">
+              <section className="py-6">
                 <SectionHead label={t.me_account} meta={`#${me.id}`} />
                 <div className="mt-2">
                   <Field label="Login" value={me.login} mono copy />
@@ -440,7 +439,7 @@ export default function MePage() {
               </section>
             </div>
 
-            <aside className="min-w-0 lg:col-span-4 border-t lg:border-t-0 lg:border-l border-border p-5 md:p-6">
+            <aside className="min-w-0 lg:col-span-4 border-border border-t lg:border-t-0 lg:border-l lg:pl-10 mt-6 lg:mt-0 py-6 lg:py-0">
               <SectionHead label={t.me_how_sessions} />
               <ul className="text-sm mt-2 flex flex-col gap-1.5 list-disc ml-4" style={{ color: 'var(--muted)' }}>
                 <li>{t.me_how_1}</li>
@@ -454,16 +453,14 @@ export default function MePage() {
             </aside>
           </div>
 
-          <div className="border-t border-border p-5 md:p-6" style={{ background: 'var(--wa-soft)' }}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold" style={{ color: 'var(--wa-text)' }}>{t.me_danger}</p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--wa-text)' }}>{t.me_danger_line}</p>
-              </div>
-              <Button variant="danger" onClick={logout} disabled={revoking}>{revoking ? t.common_revoking : t.auth_revoke_all}</Button>
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border px-4 py-3" style={{ background: 'var(--surface)', borderColor: 'var(--wa-line)', borderRadius: 'var(--radius)' }}>
+            <div>
+              <p className="text-sm font-semibold flex items-center gap-1.5" style={{ color: 'var(--wa-text)' }}><Icon name="alert" size={15} />{t.me_danger}</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{t.me_danger_line}</p>
             </div>
+            <Button variant="danger" onClick={logout} disabled={revoking}>{revoking ? t.common_revoking : t.auth_revoke_all}</Button>
           </div>
-        </Card>
+        </>
       ) : null}
 
       {/* NOTIFICATIONS — inbox owns the surface */}

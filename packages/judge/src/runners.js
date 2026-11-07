@@ -19,8 +19,47 @@ function cached(key, fn) {
   return CACHE.get(key);
 }
 
+function findJavaCmd() {
+  return cached('javaCmd', () => {
+    if (process.env.JAVA_HOME) {
+      const bin = path.join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+      if (fs.existsSync(bin)) return bin;
+    }
+    return 'java';
+  });
+}
+
+function findJavacCmd() {
+  return cached('javacCmd', () => {
+    if (process.env.JAVA_HOME) {
+      const bin = path.join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'javac.exe' : 'javac');
+      if (fs.existsSync(bin)) return bin;
+    }
+    return 'javac';
+  });
+}
+
 function hasJava() {
-  return cached('java', () => probe('javac', ['-version']) && probe('java', ['-version']));
+  return cached('java', () => {
+    const javac = findJavacCmd();
+    const java = findJavaCmd();
+    if (!probe(javac, ['-version']) || !probe(java, ['-version'])) return false;
+    try {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'satori-probe-'));
+      const src = path.join(dir, 'Probe.java');
+      fs.writeFileSync(src, 'public class Probe{public static void main(String[] a){}}', 'utf8');
+      const c = runProcess(javac, [src], { timeMs: 5000, cwd: dir });
+      if (c.exitCode !== 0) {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+        return false;
+      }
+      const r = runProcess(java, ['-cp', dir, 'Probe'], { timeMs: 5000, cwd: dir });
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+      return r.exitCode === 0;
+    } catch {
+      return false;
+    }
+  });
 }
 function hasRust() {
   return cached('rust', () => probe('rustc', ['--version']));
@@ -48,9 +87,11 @@ function compileJava(code, opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'satori-java-'));
   const src = path.join(dir, 'Main.java');
   fs.writeFileSync(src, String(code), 'utf8');
-  const r = runProcess('javac', ['-encoding', 'UTF-8', src], { timeMs: 30000, cwd: dir, maxOutputBytes: 2 * 1024 * 1024 });
+  const javac = findJavacCmd();
+  const java = findJavaCmd();
+  const r = runProcess(javac, ['-encoding', 'UTF-8', src], { timeMs: 30000, cwd: dir, maxOutputBytes: 2 * 1024 * 1024 });
   if (!r.spawnError && !r.timedOut && r.exitCode === 0 && fs.existsSync(path.join(dir, 'Main.class'))) {
-    return { ok: true, dir, cmd: 'java', args: javaArgs(dir, opts.memoryMb), log: '' };
+    return { ok: true, dir, cmd: java, args: javaArgs(dir, opts.memoryMb), log: '' };
   }
   const log = String((r.stderr || '') + (r.stdout || '') + (r.spawnError ? `\n${r.spawnError}` : '')).trim().slice(0, 8000) || 'error: compile failed. Hint: the entry class must be named Main.';
   return { ok: false, dir, log };

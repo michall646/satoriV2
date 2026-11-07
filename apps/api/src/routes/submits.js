@@ -4,7 +4,7 @@ const { store } = require('../lib/store');
 const J = require('../../../../packages/judge/src/judge');
 const { send } = require('../lib/http');
 const {
-  authUser, needAuth, forbid, canManageProblem, boardModeOf, canManageContest,
+  authUser, needAuth, forbid, canManageProblem, boardModeOf, canManageContest, canReadContest,
   submitVisibleOnBoard, teamHasMember, reqLang, localizeRow, submitView,
 } = require('../lib/authz');
 const { zipStore } = require('../lib/zip');
@@ -59,6 +59,10 @@ async function handle(req, res, url, p, m) {
     const scopeContest = contest
       ? store.get('contests', contest)
       : (prob && prob.contestId != null ? store.get('contests', prob.contestId) : null);
+    // D4: submissions of a non-public contest are contest content.
+    if (scopeContest && !canReadContest(scopeContest, me)) {
+      return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
+    }
     if (scopeContest && boardGate(res, scopeContest, me)) return true;
     let items = store.all('submits').sort((a, b) => Number(b.id) - Number(a.id));
     if (contest) items = items.filter((s) => String(s.contestId) === String(contest));
@@ -74,6 +78,7 @@ async function handle(req, res, url, p, m) {
     if (!scopeContest) {
       items = items.filter((s) => {
         const c = s.contestId != null ? store.get('contests', s.contestId) : null;
+        if (c && !canReadContest(c, me)) return false;
         return submitVisibleOnBoard(c, me, s);
       });
     }
@@ -114,6 +119,9 @@ async function handle(req, res, url, p, m) {
     const sContest = s.contestId != null ? store.get('contests', s.contestId) : null;
     if (mt[3] === 'events' && m === 'GET') {
       const me = authUser(req);
+      if (sContest && !canReadContest(sContest, me)) {
+        return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
+      }
       if (!canViewIndividual(s, sContest, me)) return individualReject(res, sContest, me);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' });
       res.write(`data: ${JSON.stringify({ submitId: s.id, status: s.status })}\n\n`);
@@ -136,6 +144,9 @@ async function handle(req, res, url, p, m) {
     }
     if (!mt[3] && m === 'GET') {
       const me = authUser(req);
+      if (sContest && !canReadContest(sContest, me)) {
+        return send(res, 403, { error: { code: 'NOT_MEMBER', message: 'Contest membership required.', hint: 'Apply to the contest or ask the teacher.' } });
+      }
       if (!canViewIndividual(s, sContest, me)) return individualReject(res, sContest, me);
       return send(res, 200, localizeRow(submitView(s, me), reqLang(req, u)));
     }

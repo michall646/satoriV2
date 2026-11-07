@@ -6,3 +6,5 @@ apps/api/data-backup-*/
 .openchamber/
 .playwright-mcp/
 .tmp/
+*.pptx
+satori-trailer/

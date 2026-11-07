@@ -231,7 +231,7 @@ export default function ProblemSubmitPage({ params }) {
         </div>
         {msg ? <p role="status" className="text-sm">{msg}</p> : null}
         {sample ? (
-          <div className="border rounded-xl p-3 text-sm" role="status" aria-live="polite" style={{ borderColor: 'var(--border)' }}>
+          <div className="border rounded-lg p-3 text-sm" role="status" aria-live="polite" style={{ borderColor: 'var(--border)' }}>
             <div className="flex gap-2 items-center flex-wrap">
               <VerdictPill verdict={sample.status} />
               <Link className="underline focus-ring rounded" href={`/results/${sample.id}`} prefetch>{t.res_submit_hash.replace('{id}', String(sample.id))}</Link>

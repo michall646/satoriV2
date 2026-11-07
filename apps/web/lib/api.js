@@ -108,6 +108,17 @@ function clearApiAuth() {
   clearApiCache();
 }
 
+function authToken() { return readToken(); }
+
+// EventSource and plain <a download> links cannot set headers. The API accepts the
+// token on GET reads; use this for ICS, RSS and live streams.
+function withAuth(url) {
+  const token = readToken();
+  if (!token) return url;
+  const sep = String(url).includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
 async function api(path, opts = {}) {
   const method = String(opts.method || 'GET').toUpperCase();
   syncAuth();
@@ -158,5 +169,5 @@ async function __fetchJson(path, opts = {}) {
 
 module.exports = {
   API, api, ApiError, clearApiCache,
-  setApiAuth, clearApiAuth,
+  setApiAuth, clearApiAuth, authToken, withAuth,
 };
