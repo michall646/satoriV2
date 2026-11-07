@@ -1,14 +1,16 @@
-// Satori V2 — JSON file store (Postgres-ready repository interface).
-// Swap JsonStore with PostgresStore later; same method shape.
+// Satori V2 — Store repository interface (JSON file store + PostgreSQL adapter).
+// Swappable backend: selects PostgresStore when DATABASE_URL is set, JsonStore otherwise.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const { PostgresStore } = require('./postgresStore');
 
 const DATA_DIR = process.env.SATORI_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const COLLECTIONS = [
   'organizations', 'users', 'teams', 'contests', 'problemSets', 'problems',
   'testGroups', 'testCases', 'submits', 'clarifications', 'news', 'subpages',
-  'audit', 'notifications', 'webhooks', 'sessions', 'limitHistory', 'notes', 'deliveries', 'problemVersions', 'passwordResets', 'twoFactorChallenges',
+  'audit', 'notifications', 'webhooks', 'sessions', 'limitHistory', 'notes',
+  'deliveries', 'problemVersions', 'passwordResets', 'twoFactorChallenges', 'email_queue',
 ];
 
 function ensureDir() {
@@ -78,10 +80,27 @@ class JsonStore {
     save(name, out);
     return rows.length !== out.length;
   }
+  delete(name, id) { return this.remove(name, id); }
   query(name, fn) { return load(name).filter(fn); }
   replaceAll(name, rows) { save(name, rows); return rows; }
 }
 
-const store = new JsonStore();
+function createStore(opts = {}) {
+  const dbUrl = opts.databaseUrl || process.env.DATABASE_URL;
+  if (dbUrl) {
+    return new PostgresStore({ connectionString: dbUrl });
+  }
+  return new JsonStore();
+}
 
-module.exports = { store, DATA_DIR, COLLECTIONS, ensureDir };
+const store = createStore();
+
+module.exports = {
+  store,
+  createStore,
+  JsonStore,
+  PostgresStore,
+  DATA_DIR,
+  COLLECTIONS,
+  ensureDir,
+};
