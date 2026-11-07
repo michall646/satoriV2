@@ -68,6 +68,7 @@ class PostgresStore {
       this.pool.on('error', (err) => {
         console.error('[PostgresStore] Pool error:', err.message);
       });
+      this._initPromise = this.hydrate();
     } catch (err) {
       console.error('[PostgresStore] Failed to initialize pg Pool:', err.message);
     }

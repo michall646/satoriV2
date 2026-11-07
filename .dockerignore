@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.tmp
+.openchamber
+.playwright-mcp
+screenshots
+*.pptx
+*.jpg
+*.png

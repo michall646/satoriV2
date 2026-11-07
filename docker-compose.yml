@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: satori
+      POSTGRES_PASSWORD: satoripassword
+      POSTGRES_DB: satori
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgres://satori:satoripassword@db:5432/satori
+      SATORI_JWT_SECRET: ${SATORI_JWT_SECRET:-satori-super-secure-production-secret-change-me}
+      SATORI_DEMO_SEED: "1"
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API: ${NEXT_PUBLIC_API:-http://localhost:3001}
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
