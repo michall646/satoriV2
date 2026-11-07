@@ -38,12 +38,12 @@ function DeadlineStrip({ contestId }) {
       dense
       tone={next.overdue ? 'danger' : urgent ? 'warn' : 'neutral'}
       icon={<Icon name={next.overdue ? 'alert' : urgent ? 'clock' : 'calendar'} size={15} />}
-      className="mx-3 mb-1 min-w-[240px] !px-3 !py-1.5"
+      className="mb-3 w-full !px-3 !py-1.5"
     >
-      <div className="flex gap-2 items-center flex-wrap">
+      <div className="flex gap-2 items-center flex-wrap text-xs">
         <Link className="underline font-semibold focus-ring rounded" style={{ color: 'var(--fg)' }} href={`/contests/${contestId}/problems/${next.p.id}`}>{next.p.code} {next.p.name}</Link>
         {next.overdue ? <span style={{ color: 'var(--wa-text)' }}>{t.timer_overdue}</span> : <Countdown to={next.p.effectiveDeadline} />}
-        <a className="underline opacity-80 focus-ring rounded" href={withAuth(`${API}/api/contests/${contestId}/grade.ics`)}>ICS</a>
+        <a className="underline opacity-80 focus-ring rounded ml-auto" href={withAuth(`${API}/api/contests/${contestId}/grade.ics`)}>ICS</a>
       </div>
     </Notice>
   );
@@ -154,22 +154,27 @@ export default function ContestLayout({ children, params }) {
   }
 
   return (
-    <div className="w-full flex flex-col md:flex-row gap-6 md:pl-56">
-      <nav aria-label={t.contest_nav_aria} className="flex md:flex-col gap-1 overflow-x-auto md:overflow-y-auto py-2 md:py-1 md:fixed md:left-5 md:top-[4.5rem] md:bottom-4 md:w-48">
+    <div className="w-full flex flex-col md:flex-row gap-4 md:gap-6 md:pl-56">
+      <div className="md:hidden pt-1 pb-0.5">
+        <strong className="block text-base font-semibold leading-tight truncate" style={{ fontFamily: 'var(--font-display)' }}>
+          {contest?.name || t.contest_fallback}
+        </strong>
+      </div>
+      <nav aria-label={t.contest_nav_aria} className="flex md:flex-col gap-1 overflow-x-auto md:overflow-y-auto py-1 md:py-1 md:fixed md:left-5 md:top-[4.5rem] md:bottom-4 md:w-48 no-scrollbar -mx-1 px-1">
         <div className="hidden md:block px-3 py-2">
           <strong className="block text-sm leading-tight" style={{ fontFamily: 'var(--font-display)' }}>{contest?.name || t.contest_fallback}</strong>
         </div>
-        <div className="lg:hidden w-full">
-          <DeadlineStrip contestId={params.id} />
-        </div>
         {tabs.map((tab) => (
-          <Link key={tab.href} href={tab.href} prefetch aria-current={tab.active ? 'page' : undefined} className="text-sm px-3 py-2 rounded-xl whitespace-nowrap focus-ring flex items-center gap-2.5 transition" style={tab.active ? { background: 'rgb(128 140 155 / 0.16)', color: 'var(--fg)', fontWeight: 600 } : { color: 'var(--muted)' }}>
+          <Link key={tab.href} href={tab.href} prefetch aria-current={tab.active ? 'page' : undefined} className="text-sm px-3 py-2 rounded-xl whitespace-nowrap focus-ring flex items-center gap-2.5 transition shrink-0" style={tab.active ? { background: 'rgb(128 140 155 / 0.16)', color: 'var(--fg)', fontWeight: 600 } : { color: 'var(--muted)' }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{tab.icon}</svg>
             {tab.labelKey ? t[tab.labelKey] : tab.label}
           </Link>
         ))}
       </nav>
-      <div className="min-w-0 flex-1 pt-2 md:pt-0">
+      <div className="min-w-0 flex-1 pt-1 md:pt-0">
+        <div className="lg:hidden">
+          <DeadlineStrip contestId={params.id} />
+        </div>
         <ExamGuard contestId={params.id} staff={isAdmin} />
         {children}
       </div>

@@ -107,19 +107,21 @@ function DashboardHeader({ me, unread, complete, lang }) {
   const pct = Math.round((complete / 5) * 100);
   return (
     <div className="dash-header">
-      <div className="flex gap-3 items-center flex-wrap">
+      <div className="flex gap-3 items-start sm:items-center justify-between flex-wrap">
         <div className="min-w-0">
           <EyebrowFx text={date} />
           <h1 className="type-h1 mt-1 truncate">{STR[lang].home_hi} {me.firstName || me.login}</h1>
         </div>
-        <div className="ml-auto flex gap-2 items-center">
+        <div className="flex gap-2 items-center flex-wrap w-full sm:w-auto justify-between sm:justify-end mt-1 sm:mt-0">
           <Link href="/notifications" prefetch className="text-[13px] underline focus-ring rounded" style={{ color: 'var(--muted)' }}>
             {STR[lang].notifications}: <strong className="tabular-nums" style={{ color: unread > 0 ? 'var(--tle-text)' : 'var(--fg)' }}>{unread}</strong>
           </Link>
-          <button type="button" onClick={openPalette} className="btn btn-secondary btn-compact focus-ring" title="Ctrl/⌘+K">
-            {STR[lang].home_switch} <kbd className="type-mono opacity-70">⌘K</kbd>
-          </button>
-          <Link href="/contests" prefetch className="btn btn-primary btn-compact focus-ring">{STR[lang].home_browse}</Link>
+          <div className="flex gap-2 items-center">
+            <button type="button" onClick={openPalette} className="hidden sm:inline-flex btn btn-secondary btn-compact focus-ring" title="Ctrl/⌘+K">
+              {STR[lang].home_switch} <kbd className="type-mono opacity-70">⌘K</kbd>
+            </button>
+            <Link href="/contests" prefetch className="btn btn-primary btn-compact focus-ring">{STR[lang].home_browse}</Link>
+          </div>
         </div>
       </div>
       {complete < 5 ? (
@@ -698,8 +700,8 @@ function GuestHome({ status, open }) {
         <p className="text-sm mt-1 max-w-xl" style={{ color: 'var(--muted)' }}>{t.guest_tagline}</p>
         <div className="flex gap-2 mt-4 flex-wrap justify-center">
           <Link href="/login" prefetch className="btn btn-primary focus-ring">{t.guest_login}</Link>
-          <Link href="/register" prefetch className="btn btn-secondary focus-ring">{t.guest_register}</Link>
-          <Link href="/contests" prefetch className="btn btn-secondary focus-ring">{t.home_browse}</Link>
+          <Link href="/register" prefetch className="btn btn-glass focus-ring">{t.guest_register}</Link>
+          <Link href="/contests" prefetch className="btn btn-glass focus-ring">{t.home_browse}</Link>
         </div>
         
       </div>

@@ -14,7 +14,7 @@ export default function Segmented({ options = [], value, onChange, ariaLabel = '
   }
 
   return (
-    <div role="radiogroup" aria-label={ariaLabel} onKeyDown={onKey} className={`inline-flex items-center gap-0.5 ${className}`}>
+    <div role="radiogroup" aria-label={ariaLabel} onKeyDown={onKey} className={`inline-flex items-center gap-0.5 overflow-x-auto no-scrollbar max-w-full ${className}`}>
       {options.map((o) => {
         const active = value === o.value;
         return (
@@ -25,7 +25,7 @@ export default function Segmented({ options = [], value, onChange, ariaLabel = '
             aria-checked={active}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.value)}
-            className={`px-2.5 pt-1 pb-1 text-[13px] focus-ring transition-colors duration-150 ease-out whitespace-nowrap ${active ? '' : 'hover:text-[color:var(--fg)]'}`}
+            className={`px-2.5 pt-1 pb-1 text-[13px] shrink-0 focus-ring transition-colors duration-150 ease-out whitespace-nowrap ${active ? '' : 'hover:text-[color:var(--fg)]'}`}
             style={active
               ? { background: 'transparent', color: 'var(--accent-text)', fontWeight: 600, borderBottom: '2px solid var(--accent)' }
               : { background: 'transparent', color: 'var(--muted)', fontWeight: 500, borderBottom: '2px solid transparent' }}

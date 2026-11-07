@@ -92,15 +92,17 @@ export default function ContestsPage() {
           onChange={setTab}
           tabs={['joined', 'pending', 'other'].map((id) => ({ id, label: t[`contests_${id}`] || id }))}
         />
-        <div className="flex flex-wrap gap-2 items-center">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.search} aria-label={t.search} className="!w-56" />
-          <Select value={sort} onChange={(e) => setSort(e.target.value)} aria-label={t.contests_sort_aria} className="!w-36">
-            <option value="name">{sortNameLabel}</option>
-            <option value="description">{sortDescLabel}</option>
-          </Select>
-          <label className="flex gap-2 items-center text-sm whitespace-nowrap cursor-pointer" style={{ color: 'var(--muted)' }}>
-            <input type="checkbox" checked={archived} onChange={toggleArchived} aria-label={t.contests_archived} /> {t.contests_archived}
-          </label>
+        <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.search} aria-label={t.search} className="w-full sm:!w-56" />
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
+            <Select value={sort} onChange={(e) => setSort(e.target.value)} aria-label={t.contests_sort_aria} className="flex-1 sm:!w-36">
+              <option value="name">{sortNameLabel}</option>
+              <option value="description">{sortDescLabel}</option>
+            </Select>
+            <label className="flex gap-2 items-center text-sm whitespace-nowrap cursor-pointer shrink-0" style={{ color: 'var(--muted)' }}>
+              <input type="checkbox" checked={archived} onChange={toggleArchived} aria-label={t.contests_archived} /> {t.contests_archived}
+            </label>
+          </div>
         </div>
       </div>
 

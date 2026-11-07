@@ -33,9 +33,9 @@ export default function Table({ columns = [], rows = [], stickyHeader, stickyFir
               const pos = stickyStyle(i, columns.length);
               const align = c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left';
               const thStyle = { borderBottom: '1px solid var(--border)', color: 'var(--muted)', background: 'var(--surface)', fontSize: 11, ...(pos || {}), ...(c.minWidth ? { minWidth: c.minWidth } : {}) };
-              if (!sortable) return <th key={c.key || i} scope="col" className={`${align} px-3 py-2 font-semibold type-mono uppercase tracking-wider whitespace-nowrap ${sticky ? 'sticky z-20' : ''}`} style={thStyle}>{c.label}</th>;
+              if (!sortable) return <th key={c.key || i} scope="col" className={`${align} px-3 py-2 font-semibold type-mono uppercase tracking-wider whitespace-nowrap ${sticky ? 'table-sticky-col sticky z-20' : ''}`} style={thStyle}>{c.label}</th>;
               return (
-                <th key={c.key || i} scope="col" className={`${align} px-3 py-2 font-semibold whitespace-nowrap ${sticky ? 'sticky z-20' : ''}`} style={thStyle}>
+                <th key={c.key || i} scope="col" className={`${align} px-3 py-2 font-semibold whitespace-nowrap ${sticky ? 'table-sticky-col sticky z-20' : ''}`} style={thStyle}>
                   <button type="button" onClick={() => onSort?.(c.sortKey)} className="focus-ring rounded underline decoration-dotted type-mono uppercase tracking-wider" style={{ color: 'var(--muted)', fontSize: 11 }} aria-sort={active ? (sort.dir === 'desc' ? 'descending' : 'ascending') : 'none'}>
                     {c.label}{active ? (sort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
                   </button>
@@ -52,8 +52,8 @@ export default function Table({ columns = [], rows = [], stickyHeader, stickyFir
                 const pos = stickyStyle(ci, columns.length);
                 const align = c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left';
                 const val = typeof c.render === 'function' ? c.render(r) : r[c.key];
-                if (c.fill) return <td key={c.key || ci} className={`vcell ${sticky ? 'sticky z-10' : ''}`} style={{ padding: 0, height: '1px', ...(pos || {}), background: sticky ? 'var(--surface)' : undefined }}>{val}</td>;
-                return <td key={c.key || ci} className={`px-3 py-2.5 align-top whitespace-nowrap ${align} ${sticky ? 'sticky z-10' : ''}`} style={{ background: sticky ? 'var(--surface)' : undefined, ...(pos || {}), ...(c.minWidth ? { minWidth: c.minWidth } : {}), ...(ci === 1 ? { borderRight: '1px solid var(--border)' } : {}), ...(((stickyLast || c.stickyRight) && ci === columns.length - 1) ? { borderLeft: '1px solid var(--border)', fontWeight: 700 } : {}) }}>{val}</td>;
+                if (c.fill) return <td key={c.key || ci} className={`vcell ${sticky ? 'table-sticky-col sticky z-10' : ''}`} style={{ padding: 0, height: '1px', ...(pos || {}), background: sticky ? 'var(--surface)' : undefined }}>{val}</td>;
+                return <td key={c.key || ci} className={`px-3 py-2.5 align-top whitespace-nowrap ${align} ${sticky ? 'table-sticky-col sticky z-10' : ''}`} style={{ background: sticky ? 'var(--surface)' : undefined, ...(pos || {}), ...(c.minWidth ? { minWidth: c.minWidth } : {}), ...(ci === 1 ? { borderRight: '1px solid var(--border)' } : {}), ...(((stickyLast || c.stickyRight) && ci === columns.length - 1) ? { borderLeft: '1px solid var(--border)', fontWeight: 700 } : {}) }}>{val}</td>;
               })}
             </tr>
           ))}

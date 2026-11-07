@@ -154,20 +154,20 @@ export default function ProblemPage({ params }) {
         {samples.length ? <Button variant="secondary" onClick={goSubmit} className="!py-1.5">{t.prob_test_samples}</Button> : null}
       </div>
       {samples.map((s, i) => (
-        <div key={i} className="py-8 grid md:grid-cols-2 gap-8 border-b last:border-0" style={{ borderColor: 'var(--border)' }}>
+        <div key={i} className="py-4 md:py-8 grid md:grid-cols-2 gap-4 md:gap-8 border-b last:border-0" style={{ borderColor: 'var(--border)' }}>
           <div className="min-w-0">
             <div className="flex gap-3 items-center mb-3">
               <EyebrowFx text={t.prob_sample_in.replace('{n}', String(i + 1))} as="span" />
               <CopyButton text={s.input} />
             </div>
-            <pre className="type-mono whitespace-pre-wrap rounded-xl p-4 leading-relaxed bg-bg min-h-[120px]">{s.input}</pre>
+            <pre className="type-mono whitespace-pre-wrap overflow-x-auto rounded-xl p-4 leading-relaxed bg-bg min-h-[80px] md:min-h-[120px]">{s.input}</pre>
           </div>
           <div className="min-w-0">
             <div className="flex gap-3 items-center mb-3">
               <EyebrowFx text={t.prob_sample_out.replace('{n}', String(i + 1))} as="span" />
               <CopyButton text={s.output} />
             </div>
-            <pre className="type-mono whitespace-pre-wrap rounded-xl p-4 leading-relaxed bg-bg min-h-[120px]">{s.output}</pre>
+            <pre className="type-mono whitespace-pre-wrap overflow-x-auto rounded-xl p-4 leading-relaxed bg-bg min-h-[80px] md:min-h-[120px]">{s.output}</pre>
           </div>
         </div>
       ))}
@@ -187,13 +187,13 @@ export default function ProblemPage({ params }) {
             {tries ? <span className="text-xs" style={{ color: 'var(--muted)' }}>{tries} {txt.tries}</span> : null}
           </div>
         </div>
-        <div className="flex gap-2 items-center flex-wrap">
+        <div className="flex gap-2 items-center flex-wrap w-full sm:w-auto">
           <Button variant="secondary" onClick={toggleWatch} aria-pressed={watch} title={txt.watchTitle} className="!py-1.5">{watch ? t.prob_watching : t.prob_watch}</Button>
-          <Select value={stmtLang} onChange={(e) => setStmtLang(e.target.value)} aria-label={t.prob_stmt_lang_aria} className="!w-24 !py-1.5">
+          <Select value={stmtLang} onChange={(e) => setStmtLang(e.target.value)} aria-label={t.prob_stmt_lang_aria} className="!w-20 sm:!w-24 !py-1.5">
             <option value="pl">PL</option>
             <option value="en">EN</option>
           </Select>
-          <Button onClick={goSubmit} className="!py-1.5">{t.prob_submit_solution}</Button>
+          <Button onClick={goSubmit} className="!py-1.5 flex-1 sm:flex-none">{t.prob_submit_solution}</Button>
         </div>
       </div>
 

@@ -286,9 +286,9 @@ export default function ProblemCockpit({ contestId }) {
       </div>
       <div className="flex flex-col gap-3 min-w-0">
         <div className="flex flex-wrap gap-2 items-center py-1">
-          <span className="relative">
+          <span className="relative flex-1 sm:flex-none min-w-[140px]">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-            <Input id="pq" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.cockpit_search_ph} className="!w-48 !pl-8" aria-label={t.cockpit_search_aria} />
+            <Input id="pq" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.cockpit_search_ph} className="w-full sm:!w-48 !pl-8" aria-label={t.cockpit_search_aria} />
           </span>
           <Segmented
             ariaLabel={t.cockpit_filter_status_aria}
@@ -318,23 +318,23 @@ export default function ProblemCockpit({ contestId }) {
         </div>
         {!filtered.length ? <EmptyState line={STR[lang].empty_no_problems} /> : (
           <div className="doc-table overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr><th className="text-left py-3.5 pl-5 pr-4 text-[13px] font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_code}</th><th className="text-left px-5 py-3.5 text-[13px] font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_name}</th><th className="text-left px-5 py-3.5 text-[13px] font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_verdict}</th>{hasDeadlines ? <th className="text-left px-5 py-3.5 text-[13px] font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_deadline}</th> : null}<th className="px-5 py-3.5 text-[13px] font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_tries}</th><th style={{ borderBottom: '1px solid var(--border)' }}><span className="sr-only">{t.prob_actions}</span></th></tr></thead>
+          <table className="w-full min-w-[560px] text-sm">
+            <thead><tr><th className="text-left py-3.5 pl-5 pr-4 text-[13px] font-medium whitespace-nowrap" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_code}</th><th className="text-left px-5 py-3.5 text-[13px] font-medium whitespace-nowrap" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_name}</th><th className="text-left px-5 py-3.5 text-[13px] font-medium whitespace-nowrap" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_verdict}</th>{hasDeadlines ? <th className="text-left px-5 py-3.5 text-[13px] font-medium whitespace-nowrap" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_deadline}</th> : null}<th className="px-5 py-3.5 text-[13px] font-medium whitespace-nowrap text-center" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{t.prob_tries}</th><th style={{ borderBottom: '1px solid var(--border)' }}><span className="sr-only">{t.prob_actions}</span></th></tr></thead>
             <tbody>
               {filtered.map((p, i) => (
                 <Fragment key={p.id}>
                   <tr data-row={i} className={`doc-row ${i === cursor && kbNav ? 'row-cursor' : ''} ${p._flashAt ? (p._flashAt % 2 ? 'row-flash-a' : 'row-flash-b') : ''}`} style={i === cursor && kbNav ? { background: 'rgb(128 140 155 / 0.14)', borderTop: '1px solid var(--border)' } : { borderTop: '1px solid var(--border)' }} onMouseEnter={() => setKbNav(false)}>
-                    <td className="py-[18px] pl-5 pr-2 prob-code text-[13px]" style={{ color: 'var(--muted)' }}>{codeOf(p)}</td>
+                    <td className="py-[18px] pl-5 pr-2 prob-code text-[13px] whitespace-nowrap" style={{ color: 'var(--muted)' }}>{codeOf(p)}</td>
                     <td className="px-5 py-[18px]">
                       <span className="flex items-center gap-2.5">
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none" style={{ color: 'var(--muted)' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
-                        <span>
+                        <span className="min-w-0">
                           <a className="block font-semibold text-[14px] leading-snug no-underline hover:underline focus-ring rounded" style={{ color: 'var(--fg)' }} href={`/contests/${contestId}/problems/${p.id}`}>{p.name}</a>
-                          {p.solvesPct != null ? <span className="block text-xs mt-1 tabular-nums" style={{ color: 'var(--muted)' }}>{t.cockpit_solved_by} {Math.round(p.solvesPct)}%</span> : null}
+                          {p.solvesPct != null ? <span className="block text-xs mt-1 tabular-nums whitespace-nowrap" style={{ color: 'var(--muted)' }}>{t.cockpit_solved_by} {Math.round(p.solvesPct)}%</span> : null}
                         </span>
                       </span>
                     </td>
-                    <td className="vcell">
+                    <td className="vcell whitespace-nowrap">
                       {(() => { const m = verdictMeta(p); return (
                         <button onClick={() => { setOpen(open === p.id ? null : p.id); openNotes(p); }} className={`vcell-fill ${m.tone}`} aria-expanded={open === p.id} aria-label={t.cockpit_verdict_hist.replace('{v}', verdictLabel(p))}>
                           <span>{m.icon ? `${m.icon} ${m.main}` : m.main}</span>
@@ -343,11 +343,11 @@ export default function ProblemCockpit({ contestId }) {
                       ); })()}
                     </td>
                     {hasDeadlines ? (
-                      <td className="px-5 py-[18px] text-[13px] tabular-nums" style={{ color: 'var(--muted)' }}>
+                      <td className="px-5 py-[18px] text-[13px] tabular-nums whitespace-nowrap" style={{ color: 'var(--muted)' }}>
                         {(() => { const d = deadlineMeta(p); if (!d) return <span>—</span>; return <span title={`${d.abs} (${d.source})`} style={d.overdue ? { color: 'var(--danger)', fontWeight: 600 } : d.urgent ? { color: 'var(--warn)', fontWeight: 600 } : undefined}>{d.rel}</span>; })()}
                       </td>
                     ) : null}
-                    <td className="px-5 py-[18px] text-center tabular-nums text-[13px]" style={{ color: 'var(--muted)' }}>{p._tries ?? 0}</td>
+                    <td className="px-5 py-[18px] text-center tabular-nums text-[13px] whitespace-nowrap" style={{ color: 'var(--muted)' }}>{p._tries ?? 0}</td>
                     <td className="whitespace-nowrap text-right pr-5">
                       <Button variant="secondary" className="btn-compact" onClick={() => setModal(p)}>{t.submit}</Button>
                     </td>

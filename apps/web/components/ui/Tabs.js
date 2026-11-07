@@ -52,7 +52,7 @@ export default function Tabs({ tabs = [], value, defaultId, onChange, ariaLabel 
 
   return (
     <div className={className}>
-      <div role="tablist" aria-label={ariaLabel} className="flex gap-1 border-b" style={{ borderColor: 'var(--border)' }} onKeyDown={onKey}>
+      <div role="tablist" aria-label={ariaLabel} className="flex gap-1 border-b overflow-x-auto no-scrollbar overscroll-x-contain -mx-1 px-1" style={{ borderColor: 'var(--border)' }} onKeyDown={onKey}>
         {tabs.map((t) => {
           const isActive = active === t.id;
           return (
@@ -66,7 +66,7 @@ export default function Tabs({ tabs = [], value, defaultId, onChange, ariaLabel 
               tabIndex={isActive ? 0 : -1}
               disabled={t.disabled}
               onClick={() => select(t.id)}
-              className="inline-flex items-center gap-2 px-3 py-2 text-[13px] focus-ring transition-colors duration-150 ease-out border-b-2 -mb-px rounded-t-[6px] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-2 text-[13px] whitespace-nowrap shrink-0 focus-ring transition-colors duration-150 ease-out border-b-2 -mb-px rounded-t-[6px] disabled:opacity-50 disabled:cursor-not-allowed"
               style={isActive
                 ? { borderColor: 'var(--accent)', color: 'var(--fg)', fontWeight: 600, background: 'transparent' }
                 : { borderColor: 'transparent', color: 'var(--muted)', fontWeight: 500, background: 'transparent' }}

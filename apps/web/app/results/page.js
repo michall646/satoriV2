@@ -216,29 +216,29 @@ export default function ResultsPage({ searchParams }) {
       <h1 className="type-h1">{t.me_results}</h1>
       <form className="flex flex-wrap gap-2 my-3 items-end" onSubmit={(e) => { e.preventDefault(); load(); }}>
         {lockedContest ? null : (
-          <Input label={t.contest_fallback} placeholder="ID" value={f.contest} onChange={(e) => setF({ ...f, contest: e.target.value })} className="!w-24" />
+          <Input label={t.contest_fallback} placeholder="ID" value={f.contest} onChange={(e) => setF({ ...f, contest: e.target.value })} className="w-20 sm:!w-24 shrink-0" />
         )}
-        <Input label={t.col_problem} placeholder="ID" value={f.problem} onChange={(e) => setF({ ...f, problem: e.target.value })} className="!w-28 flex-1 min-w-28" />
-        <Select label={t.prob_verdict} value={f.verdict} onChange={(e) => setF({ ...f, verdict: e.target.value })} className="!w-28">
+        <Input label={t.col_problem} placeholder="ID" value={f.problem} onChange={(e) => setF({ ...f, problem: e.target.value })} className="flex-1 min-w-[90px] sm:!w-28" />
+        <Select label={t.prob_verdict} value={f.verdict} onChange={(e) => setF({ ...f, verdict: e.target.value })} className="flex-1 min-w-[110px] sm:!w-28">
           <option value="">{t.results_all}</option>
           {VERDICTS.slice(1).map((v) => <option key={v} value={v}>{v}</option>)}
         </Select>
-        <Select label={t.col_show} value={String(LIMITS.includes(Number(f.limit)) ? Number(f.limit) : 50)} onChange={(e) => setF({ ...f, limit: e.target.value })} className="!w-24">
+        <Select label={t.col_show} value={String(LIMITS.includes(Number(f.limit)) ? Number(f.limit) : 50)} onChange={(e) => setF({ ...f, limit: e.target.value })} className="w-20 sm:!w-24 shrink-0">
           {LIMITS.map((n) => <option key={n} value={n}>{n}</option>)}
         </Select>
         <button
           type="button"
           aria-pressed={!!f.me}
           onClick={() => setF({ ...f, me: f.me ? '' : '1' })}
-          className={`px-3.5 py-2 rounded-xl border text-sm font-semibold focus-ring transition ${f.me ? '' : 'opacity-60'}`}
+          className={`px-3 py-2 rounded-xl border text-sm font-semibold focus-ring transition shrink-0 ${f.me ? '' : 'opacity-60'}`}
           style={{ background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--fg)' }}
         >
           {f.me ? '●' : '○'} {t.res_mine}
         </button>
-        <label className="flex gap-1 items-center text-sm">
+        <label className="flex gap-1 items-center text-sm py-2 shrink-0">
           <input type="checkbox" checked={hideSample} onChange={toggleHideSample} /> {txt.hideSamples}
         </label>
-        <details className="text-sm">
+        <details className="text-sm py-2 shrink-0">
           <summary className="cursor-pointer underline opacity-70">{t.results_more}</summary>
           <div className="pt-1">
             <Input label={t.col_team} placeholder="ID" value={f.team} onChange={(e) => setF({ ...f, team: e.target.value })} className="!w-28" />

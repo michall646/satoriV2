@@ -199,7 +199,7 @@ export default function ProblemSubmitPage({ params }) {
             hint={`${t.subm_drag_hint} · ${t.subm_name_rules}`}
             className="flex-1 min-w-[220px]"
           />
-          <label className="text-sm flex gap-2 items-center pb-6 whitespace-nowrap cursor-pointer">
+          <label className="text-sm flex gap-2 items-center pb-1 sm:pb-6 whitespace-nowrap cursor-pointer">
             <input type="checkbox" checked={sampleOnly} onChange={(e) => setSampleOnly(e.target.checked)} />
             {t.subm_sample_only}
           </label>

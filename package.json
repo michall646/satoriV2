@@ -13,7 +13,7 @@
   "scripts": {
     "demo": "node scripts/demo.js",
     "dev:api": "node apps/api/src/server.js",
-    "dev:web": "npm --prefix apps/web dev",
+    "dev:web": "npm --prefix apps/web run dev",
     "clean:web": "node -e \"require('fs').rmSync('apps/web/.next',{recursive:true,force:true})\"",
     "seed": "node apps/api/src/seed.js",
     "migrate:v2": "node scripts/migrate-v2.js",

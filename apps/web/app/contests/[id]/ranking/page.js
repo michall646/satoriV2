@@ -301,7 +301,7 @@ export default function RankingPage({ params }) {
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0 ml-auto">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
           <Button variant={replayActive ? 'primary' : 'secondary'} onClick={toggleReplay}>
             {replayActive ? t.rank_replay_live : t.rank_replay}
           </Button>

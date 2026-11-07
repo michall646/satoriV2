@@ -85,7 +85,7 @@ function Checklist({ me, orgName }) {
 function Segmented({ tabs, active, onChange }) {
   if (!tabs.length) return null;
   return (
-    <div role="tablist" aria-label={STR[getLang()].me_sections_aria} className="flex items-center gap-0.5 max-w-full overflow-x-auto">
+    <div role="tablist" aria-label={STR[getLang()].me_sections_aria} className="flex items-center gap-0.5 max-w-full overflow-x-auto no-scrollbar overscroll-x-contain -mx-1 px-1">
       {tabs.map((tab) => {
         const on = active === tab.id;
         return (
@@ -94,7 +94,7 @@ function Segmented({ tabs, active, onChange }) {
             role="tab"
             aria-selected={on}
             onClick={() => onChange(tab.id)}
-            className={`px-2 sm:px-3 pt-2 pb-2.5 text-sm focus-ring transition-colors whitespace-nowrap ${on ? 'font-semibold' : 'font-medium opacity-60 hover:opacity-100'}`}
+            className={`px-2 sm:px-3 pt-2 pb-2.5 text-sm shrink-0 focus-ring transition-colors whitespace-nowrap ${on ? 'font-semibold' : 'font-medium opacity-60 hover:opacity-100'}`}
             style={on
               ? { color: 'var(--fg)', boxShadow: 'inset 0 -2px 0 var(--accent)' }
               : { color: 'var(--muted)' }}
