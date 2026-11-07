@@ -7,6 +7,7 @@ const { URL } = require('node:url');
 const { store } = require('./lib/store');
 const { send, handleOptions } = require('./lib/http');
 const judgeQueue = require('./lib/judgeQueue');
+const emailQueue = require('./lib/emailQueue');
 const metrics = require('./lib/metrics');
 
 const PORT = Number(process.env.PORT || 3001);
@@ -32,6 +33,12 @@ try {
   judgeQueue.recover();
 } catch (e) {
   console.error(`Judge queue recovery skipped: ${e.message}`);
+}
+
+try {
+  emailQueue.startEmailWorker(15000);
+} catch (e) {
+  console.error(`Email queue worker failed to start: ${e.message}`);
 }
 
 // ---- router ----

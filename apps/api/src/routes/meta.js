@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { store } = require('../lib/store');
 const judgeQueue = require('../lib/judgeQueue');
+const emailQueue = require('../lib/emailQueue');
 const J = require('../../../../packages/judge/src/judge');
 const { send, sendText, readBody } = require('../lib/http');
 const { authUser, audit, canReadContest, canManageContest } = require('../lib/authz');
@@ -355,6 +356,36 @@ async function handle(req, res, url, p, m) {
     return send(res, 200, openapi());
   }
   if (p === '/api/orgs' || p.startsWith('/api/orgs/') || p === '/api/me/orgs') return handleOrgs(req, res, u, p, m);
+
+  if (p === '/api/admin/emails' && m === 'GET') {
+    const me = authUser(req);
+    if (!me) return send(res, 401, { error: { code: 'AUTH', message: 'Login required.' } });
+    if (!isSuperadmin(me)) return send(res, 403, { error: { code: 'FORBIDDEN', message: 'Superadmin only.' } });
+    const stats = emailQueue.emailQueueStats();
+    const items = store.all('emails').slice(-100).reverse();
+    return send(res, 200, { stats, items });
+  }
+
+  if (p === '/api/admin/emails/flush' && m === 'POST') {
+    const me = authUser(req);
+    if (!me) return send(res, 401, { error: { code: 'AUTH', message: 'Login required.' } });
+    if (!isSuperadmin(me)) return send(res, 403, { error: { code: 'FORBIDDEN', message: 'Superadmin only.' } });
+    const result = await emailQueue.flushEmailQueue();
+    audit(me.id, 'admin.emails.flush', 'emails', result);
+    return send(res, 200, result);
+  }
+
+  const emailRetryMt = p.match(/^\/api\/admin\/emails\/([^/]+)\/retry$/);
+  if (emailRetryMt && m === 'POST') {
+    const me = authUser(req);
+    if (!me) return send(res, 401, { error: { code: 'AUTH', message: 'Login required.' } });
+    if (!isSuperadmin(me)) return send(res, 403, { error: { code: 'FORBIDDEN', message: 'Superadmin only.' } });
+    const updated = emailQueue.retryEmail(emailRetryMt[1]);
+    if (!updated) return send(res, 404, { error: { code: 'EMAIL_NOT_FOUND', message: 'Queued email not found.' } });
+    audit(me.id, 'admin.emails.retry', `email:${emailRetryMt[1]}`, {});
+    return send(res, 200, { ok: true, email: updated });
+  }
+
   if (p === '/api/search' && m === 'GET') {
     const q = (u.searchParams.get('q') || '').toLowerCase();
     if (!q) return send(res, 200, { contests: [], problems: [], users: [], announcements: [] });
