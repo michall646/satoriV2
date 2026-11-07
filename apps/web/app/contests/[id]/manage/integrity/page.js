@@ -23,11 +23,17 @@ export default function ManageIntegrityPage({ params }) {
   const [exam, setExam] = useState({ fullscreen: false, pasteBlock: false, shuffle: false, ipAllow: '', timeWindow: '' });
   const [violations, setViolations] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [tools, setTools] = useState({ builtin: true, moss: false, jplag: false });
+  const [checking, setChecking] = useState(false);
+  const [activeTool, setActiveTool] = useState('auto');
 
   useEffect(() => {
     api(`/api/contests/${params.id}/integrity/similarity?threshold=${threshold}`)
       .then((d) => setPairs(d.pairs || []))
       .catch(() => setPairs([]));
+    api(`/api/contests/${params.id}/integrity/external-tools`)
+      .then((d) => setTools(d.tools || { builtin: true }))
+      .catch(() => {});
     api(`/api/contests/${params.id}/integrity/appeals`).then((d) => setAppeals(d.items || [])).catch(() => setAppeals([]));
     api(`/api/contests/${params.id}/integrity/timeline`).then((d) => setFlags(d.flags || [])).catch(() => setFlags([]));
     api(`/api/contests/${params.id}/audit`).then((d) => setAudit(d.items || [])).catch(() => setAudit([]));
@@ -56,6 +62,24 @@ export default function ManageIntegrityPage({ params }) {
     } catch (e) { toast(`${t.integrity_save_failed} ${e.message}`, 'danger'); }
   }
 
+  async function runCheck() {
+    setChecking(true);
+    try {
+      const res = await api(`/api/contests/${params.id}/integrity/external-check`, {
+        method: 'POST',
+        body: JSON.stringify({ tool: activeTool, threshold }),
+      });
+      if (res.result?.pairs) {
+        setPairs(res.result.pairs);
+        toast(`Plagiarism scan completed using ${res.result.tool.toUpperCase()}: ${res.result.matchCount} pairs found.`, 'success');
+      }
+    } catch (e) {
+      toast(`Plagiarism check failed: ${e.message}`, 'danger');
+    } finally {
+      setChecking(false);
+    }
+  }
+
   if (pairs === null) return <Skeleton lines={6} />;
 
   const auditFiltered = audit.filter((a) => !auditQ || `${a.action} ${a.target} ${a.actor}`.toLowerCase().includes(auditQ.toLowerCase()));
@@ -69,11 +93,30 @@ export default function ManageIntegrityPage({ params }) {
       </Notice>
 
       <PageSection title={t.integrity_similarity} actions={<span className="type-mono text-xs" style={{ color: 'var(--muted)' }}>{t.integrity_legend}</span>}>
-        <label className="text-xs flex items-center gap-3 mb-3">
-          <span style={{ color: 'var(--muted)' }}>{t.integrity_threshold}</span>
-          <input type="range" min="0.4" max="0.95" step="0.05" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
-          <span className="type-mono">{threshold}</span>
-        </label>
+        <div className="flex items-center gap-4 flex-wrap mb-3 text-xs">
+          <label className="flex items-center gap-2">
+            <span style={{ color: 'var(--muted)' }}>{t.integrity_threshold}</span>
+            <input type="range" min="0.4" max="0.95" step="0.05" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
+            <span className="type-mono">{threshold}</span>
+          </label>
+          <div className="flex items-center gap-2 ml-auto">
+            <select
+              value={activeTool}
+              onChange={(e) => setActiveTool(e.target.value)}
+              className="select text-xs py-1 px-2 rounded"
+              style={{ background: 'var(--card-bg)', border: '1px solid var(--border)' }}
+              aria-label="Plagiarism detector"
+            >
+              <option value="auto">Auto (MOSS/JPlag/Builtin)</option>
+              <option value="builtin">Built-in AST Shingles</option>
+              <option value="moss" disabled={!tools.moss}>MOSS {tools.moss ? '✓' : '(not configured)'}</option>
+              <option value="jplag" disabled={!tools.jplag}>JPlag {tools.jplag ? '✓' : '(not configured)'}</option>
+            </select>
+            <Button variant="secondary" className="!py-1 !text-xs" disabled={checking} onClick={runCheck}>
+              {checking ? 'Scanning…' : 'Run Check'}
+            </Button>
+          </div>
+        </div>
         {shown.length ? (
           <Table
             columns={[

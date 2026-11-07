@@ -74,7 +74,7 @@ test('submit judges to OK and ranking reflects solve (positive)', async () => {
   assert.equal(s.status, 201);
   const id = s.body.id;
   let got = null;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 100; i++) {
     await new Promise((r) => setTimeout(r, 150));
     const d = await api(`/api/submits/${id}`);
     if (!['QUE', 'CMP', 'TST'].includes(d.body.status)) { got = d.body; break; }

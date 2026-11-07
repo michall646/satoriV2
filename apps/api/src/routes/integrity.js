@@ -6,6 +6,7 @@ const { send, readBody, clientIp, violationRate, throttleResponse } = require('.
 const { needAuth, forbid, canManageContest, contestRole, audit } = require('../lib/authz');
 const { normalizeExam } = require('../lib/contestAccess');
 const { similarityGraph, timelineFlags } = require('../lib/integrity');
+const { getAvailableTools, runPlagiarismCheck } = require('../lib/plagiarism');
 
 const MEMBER_ROLES = new Set(['participant', 'contest_admin', 'superadmin']);
 
@@ -138,7 +139,30 @@ async function handle(req, res, url, p, m) {
     return send(res, 201, { ok: true, ...publicAppeal(row) });
   }
 
-  // ---- jury integrity views: similarity, timeline, open appeals ----
+  // ---- jury integrity views: similarity, timeline, open appeals, external check ----
+  mt = p.match(/^\/api\/contests\/(\d+)\/integrity\/external-tools$/);
+  if (mt && m === 'GET') {
+    const c = store.get('contests', mt[1]);
+    if (!c) return noContest(res);
+    const me = needAuth(req, res);
+    if (!me) return true;
+    if (!canManageContest(me, c)) return forbid(res);
+    return send(res, 200, { tools: getAvailableTools() });
+  }
+
+  mt = p.match(/^\/api\/contests\/(\d+)\/integrity\/external-check$/);
+  if (mt && m === 'POST') {
+    const c = store.get('contests', mt[1]);
+    if (!c) return noContest(res);
+    const me = needAuth(req, res);
+    if (!me) return true;
+    if (!canManageContest(me, c)) return forbid(res);
+    const b = await readBody(req);
+    const result = await runPlagiarismCheck(c.id, b.problemId, b);
+    audit(me.id, 'contest.integrity.external_check', `contest:${c.id}`, { problemId: b.problemId, tool: result.tool, matchCount: result.matchCount });
+    return send(res, 200, { ok: true, result });
+  }
+
   mt = p.match(/^\/api\/contests\/(\d+)\/integrity\/(similarity|timeline|appeals)$/);
   if (mt && m === 'GET') {
     const c = store.get('contests', mt[1]);
