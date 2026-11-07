@@ -8,6 +8,7 @@ const CPP = require('./cpp');
 const PY = require('./python');
 const RUNNERS = require('./runners');
 const CHECKER = require('./checker');
+const SANDBOX = require('./sandbox');
 const { runProcess, clampTimeMs } = require('./run');
 
 const QUEUE = []; // submitIds in order
@@ -120,4 +121,10 @@ module.exports = {
   hasJava: RUNNERS.hasJava, compileJava: RUNNERS.compileJava, javaArgs: RUNNERS.javaArgs,
   hasRust: RUNNERS.hasRust, compileRust: RUNNERS.compileRust,
   hasNode: RUNNERS.hasNode, prepareJs: RUNNERS.prepareJs,
+  runSandboxed: SANDBOX.runSandboxed,
+  buildDockerArgs: SANDBOX.buildDockerRunArgs,
+  buildDockerRunArgs: SANDBOX.buildDockerRunArgs,
+  isDockerAvailable: SANDBOX.isDockerAvailable,
+  getSandboxStatus: SANDBOX.getSandboxStatus,
+  clampMemoryMb: SANDBOX.clampMemoryMb,
 };

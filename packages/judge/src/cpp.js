@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { runProcess } = require('./run');
+const { runBinary: runSandboxedBinary } = require('./sandbox');
 
 // C1: toolchain probes are cached — availability is asked on every submit/status call.
 const PROBES = new Map();
@@ -57,8 +58,8 @@ function compileCpp(code, opts = {}) {
   return compileSource('g++', '-std=c++17', 'cpp', 'satori-cpp-', code, opts);
 }
 
-function runBinary(binary, input, timeMs) {
-  return runProcess(binary, [], { input, timeMs, cwd: path.dirname(binary) });
+function runBinary(binary, input, timeMs, opts = {}) {
+  return runSandboxedBinary(binary, input, timeMs, opts);
 }
 
 function cleanupDir(dir) {

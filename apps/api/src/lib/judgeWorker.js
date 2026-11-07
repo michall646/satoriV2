@@ -181,9 +181,19 @@ async function judgeOne(s) {
     }
     if (exec) {
       const tcLimit = Number(tc.timeMs) || effLimit;
-      const run = J.runProcess(exec.cmd, exec.args, { input: tc.input, timeMs: tcLimit, cwd: exec.dir });
+      const memLimit = (problem && problem.limits && problem.limits.memoryMb) || 256;
+      const run = J.runSandboxed(exec.cmd, exec.args, {
+        input: tc.input,
+        timeMs: tcLimit,
+        memoryMb: memLimit,
+        cwd: exec.dir,
+      });
       if (run.timedOut) {
         perTest.push({ n: i + 1, verdict: 'TLE', timeMs: Math.max(1, run.wallMs), msg: `exceeded ${tcLimit}ms` });
+        continue;
+      }
+      if (run.oomKilled) {
+        perTest.push({ n: i + 1, verdict: 'MLE', timeMs: Math.max(1, run.wallMs), msg: `exceeded ${memLimit}MB memory limit` });
         continue;
       }
       if (run.outputCapped) {

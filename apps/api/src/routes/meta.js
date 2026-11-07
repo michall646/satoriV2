@@ -332,7 +332,8 @@ async function handle(req, res, url, p, m) {
       languages: Object.entries(avail).filter(([, v]) => v).map(([k]) => k),
       missingToolchains: Object.entries(avail).filter(([, v]) => !v).map(([k]) => k),
       maintenance: null,
-      sandbox: 'interim local runner — memory limits not enforced yet (docs/JUDGE_SANDBOX.md)',
+      sandbox: J.getSandboxStatus ? J.getSandboxStatus().description : 'interim local runner — memory limits not enforced yet (docs/JUDGE_SANDBOX.md)',
+      sandboxBackend: J.getSandboxStatus ? J.getSandboxStatus().backend : 'local',
     });
   }
   if (p === '/api/languages' && m === 'GET') {
